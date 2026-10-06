@@ -1,4 +1,36 @@
-# BYTE BACK 방어전 시작 틀 R5
+# BYTE BACK · 2단계 자료실
+
+현재 로컬 구현은 메모를 공개 파일에서 제거하고 Supabase 학습 DB를 Vercel 서버 함수로 읽도록 변경한 상태입니다. 가상 메모 네 건만 사용합니다. 화면은 `GET /api/notes`를 호출하며 `data.json`과 `public/data.json`의 `notes`는 빈 배열입니다. 2단계 빌드는 공개 메모를 복사하는 대신 빈 파일을 생성하고, 원본에 메모가 다시 들어가면 실패합니다.
+
+## 연결 설정과 실행
+
+1. Supabase 학습 프로젝트의 SQL Editor에서 로컬 `private/step2-notes.sql`을 실행합니다. 이 파일은 메모 본문을 포함하므로 Git에서 제외하며 정적 배포 폴더에 넣지 않습니다. `public.training_notes`의 `owner_id`는 nullable UUID이며 `auth.users` 외래키가 없습니다. RLS를 켜고 `PUBLIC`·`anon`·`authenticated`의 테이블 권한을 회수한 뒤 `service_role`에 읽기 권한을 줍니다.
+2. Vercel의 해당 프로젝트 → Settings → Environment Variables에 `SUPABASE_URL`과 `SUPABASE_SECRET_KEY`를 직접 입력합니다. 후자는 Supabase의 서버 전용 Secret key이며 브라우저 공개용 접두사를 붙이지 않습니다. 값은 채팅·소스·Git·로그·제출 묶음에 넣지 않습니다. 서버는 키를 Supabase 요청의 `apikey` 헤더로만 보냅니다. [Supabase API 키 공식 안내](https://supabase.com/docs/guides/getting-started/api-keys)
+3. 변경된 코드와 환경변수를 적용해 Vercel을 다시 배포합니다. `/`에는 네 카드가 보여야 하고 `/data.json`에는 메모가 없어야 합니다. `GET /api/notes`만 허용하며 다른 메서드는 HTTP 405입니다. 연결 설정 누락은 503, DB 조회 실패는 502이며 원본 오류나 키는 응답·로그에 출력하지 않습니다.
+
+로컬 정적 빌드 확인: `node scripts/build-public.mjs --local` (`npm run build -- --local`과 같은 실행). 함수 점검: `node --test test/notes.test.mjs test/r5.test.mjs test/package-starter.test.mjs`. 정적 파일만 여는 방식으로는 서버 API를 실행할 수 없습니다. 배포 빌드는 Vercel의 저장소·커밋·주소 환경변수를 검증하고 2단계 `public/aleph.json`을 만듭니다.
+
+## 남은 약점과 확인 상태
+
+**`/api/notes`는 아직 누구나 호출할 수 있는 공개 주소입니다.** RLS와 브라우저 DB 권한 차단만으로 서버 API 방문자를 구분하지는 못합니다. 로그인과 소유자별 접근 확인은 다음 단계에서 구현하므로 실제 자료는 넣지 않습니다. `owner_id`도 이번 단계에서는 비어 있습니다.
+
+사용자가 SQL 실행 결과의 메모 수 4와 RLS 활성화, Vercel 환경변수 두 개의 저장을 확인했다고 알려 주었습니다. DB의 나머지 권한 검사는 도구가 직접 실행하지 않았습니다. 로컬 빌드, 서버 함수의 정상·오류·거부 동작 시험과 공개 가능한 파일의 메모 본문·비밀값 검색이 통과했습니다. GitHub 업로드·실제 재배포·배포 화면의 네 카드 확인은 이 기록 작성 시점에는 미실행입니다.
+
+## 현재 파일 검색과 공개 API 확인 절차
+
+`node scripts/check-note-removal.mjs`로 Git에 포함할 로컬 파일과 현재 정적 JSON을 확인합니다. 원래 가상 메모 문장은 1단계 기준 커밋의 `data.json`에서 읽어 검색하므로 검색 코드 자체에 본문을 복사하지 않습니다. SQL과 제출 묶음은 검색·공개 대상에서 제외합니다. 결과는 본문이나 비밀값 대신 검출 파일 이름만 기록합니다.
+
+업로드와 재배포 후 `node scripts/check-note-removal.mjs --live`를 실행합니다. GitHub 기본 브랜치의 최신 커밋을 읽고 그 커밋의 모든 파일, 해당 커밋의 `public` 파일에 대응하는 현재 배포 파일을 검색합니다. 배포된 `/aleph.json`의 커밋도 GitHub 최신 커밋과 대조합니다. `noteMatches`와 `secretMatches`는 각각 빈 배열이어야 하고 `matchesGithubLatest`는 `true`여야 합니다. 접속 실패·다른 커밋·검색 일치는 통과로 기록하지 않습니다. 이 절차는 옛 커밋과 옛 배포를 삭제하지 않습니다.
+
+공개 API의 남은 약점은 별도로 기록합니다. `npm run bundle`은 현재 배포에 인증 없이 `/data.json`, `/api/notes` GET과 POST를 실제 요청합니다. 정상은 정적 메모 0건과 API 메모 4건, 거부 결과는 POST HTTP 405입니다. GET API의 성공은 2단계의 남은 공개 접근 약점이며 방어 완성으로 표시하지 않습니다. 접속 실패는 미확인으로 남기고 응답 본문은 묶음에 넣지 않습니다. 이 자기 점검은 심판 판정이 아닙니다.
+
+저장점 절차: 포함 파일과 비밀값 검색 결과 확인 → `git commit -m "2단계 저장점"` → `npm run bundle`. `bundle-notes.json`과 `artifacts/submission.json`, 로컬 SQL은 커밋하지 않습니다. 제출 묶음은 그 실행 시점의 배포 응답을 담으므로 실제 배포가 바뀌면 다시 생성해서 확인합니다.
+
+**과거 공개 커밋과 과거 배포의 메모는 이번 수정으로 지워지지 않습니다.** 최신 파일에서 메모가 사라져도 과거 노출까지 해소됐다고 판단하지 않습니다. 실제 심판 접수와 판정은 포털에서 확인합니다.
+
+## 1단계 시작 틀 R5 (이전 안내)
+
+아래는 1단계의 공개 자료 동작을 설명하는 기존 안내입니다. 현재의 2단계 실행은 위 내용을 따릅니다.
 
 이 저장소는 1단계에서 학생 본인이 GitHub 저장소와 Vercel 배포를 만드는 출발점입니다. 포함된 메모 네 건은 가상 자료입니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
 
