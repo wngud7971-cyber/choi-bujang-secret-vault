@@ -13,7 +13,7 @@ function responseRecorder() {
   };
 }
 
-test('stage 3 authenticates before querying notes and keeps server secrets private', async t => {
+test('stage 4 authenticates and restricts all note operations to the verified owner', async t => {
   const oldFetch = globalThis.fetch;
   const oldUrl = process.env.SUPABASE_URL;
   const oldKey = process.env.SUPABASE_SECRET_KEY;
@@ -35,12 +35,14 @@ test('stage 3 authenticates before querying notes and keeps server secrets priva
     new SignJWT({ ...studentClaims, ...claims })
       .setProtectedHeader({ alg: 'ES256', kid: studentJwk.kid }).sign(key);
   const validToken = await studentToken();
-  const validJudgeToken = await new SignJWT({
+  const judgeToken = (claims = {}) => new SignJWT({
     iss: config.judgeIssuer, aud: new URL(config.publicAppUrl).hostname,
     sub: userId, iat: now, exp: now + 300,
     aleph_role: 'judge', aleph_identity: 'a',
     aleph_run: '22222222-2222-4222-8222-222222222222',
+    ...claims,
   }).setProtectedHeader({ alg: 'ES256', kid: judgeJwk.kid }).sign(judge.privateKey);
+  const validJudgeToken = await judgeToken();
   let databaseCalls = 0;
   let databaseResponse;
   const fakeFetch = async (value, options) => {
@@ -50,6 +52,7 @@ test('stage 3 authenticates before querying notes and keeps server secrets priva
     assert.equal(url.origin, new URL(config.identityProvider.issuer).origin);
     assert.equal(url.pathname, '/rest/v1/training_notes');
     assert.equal(url.searchParams.get('select'), ['POST', 'DELETE'].includes(options.method) ? 'id' : 'id,title,content');
+    if (options.method !== 'POST') assert.ok(url.searchParams.get('owner_id')?.startsWith('eq.'));
     if (options.method === 'GET' && !url.searchParams.has('id')) {
       assert.ok(url.searchParams.get('owner_id')?.startsWith('eq.'));
       assert.equal(url.searchParams.get('order'), 'created_at.asc,id.asc');
@@ -126,13 +129,19 @@ test('stage 3 authenticates before querying notes and keeps server secrets priva
       const userB = '33333333-3333-4333-8333-333333333333';
       const tokenB = await studentToken({ sub: userB });
       const noteId = '44444444-4444-4444-8444-444444444444';
-      const rows = new Map([['legacy', { id: 'legacy', owner_id: null, title: 'Legacy fixture', content: 'Synthetic content' }]]);
+      const judgeUser = '55555555-5555-4555-8555-555555555555';
+      const judgeNote = '66666666-6666-4666-8666-666666666666';
+      const legacyNote = '77777777-7777-4777-8777-777777777777';
+      const operatorToken = await judgeToken({ sub: judgeUser });
+      const rows = new Map([
+        [legacyNote, { id: legacyNote, owner_id: null, title: 'Legacy fixture', content: 'Synthetic content' }],
+        [judgeNote, { id: judgeNote, owner_id: judgeUser, title: 'Judge fixture', content: 'Synthetic content' }],
+      ]);
       databaseResponse = async (url, options) => {
         const id = url.searchParams.get('id')?.slice(3);
         const owner = url.searchParams.get('owner_id')?.slice(3);
         if (options.method === 'POST') {
           const row = JSON.parse(options.body);
-          assert.equal(row.owner_id, userId);
           assert.deepEqual(Object.keys(row).sort(), ['content', 'id', 'owner_id', 'position', 'title']);
           assert.equal(row.position, 0);
           if (rows.has(row.id)) return Response.json({ detail: testKey }, { status: 409 });
@@ -140,20 +149,18 @@ test('stage 3 authenticates before querying notes and keeps server secrets priva
           return Response.json([{ id: row.id }], { status: 201 });
         }
         if (options.method === 'PATCH') {
-          assert.equal(owner, undefined, 'ownership checks on individual operations start in stage 4');
           const changes = JSON.parse(options.body);
           assert.deepEqual(Object.keys(changes).sort(), ['content', 'title']);
-          if (!rows.has(id)) return Response.json([]);
+          if (!rows.has(id) || rows.get(id).owner_id !== owner) return Response.json([]);
           Object.assign(rows.get(id), changes);
           return Response.json([rows.get(id)]);
         }
         if (options.method === 'DELETE') {
-          assert.equal(owner, undefined);
-          if (!rows.has(id)) return Response.json([]);
+          if (!rows.has(id) || rows.get(id).owner_id !== owner) return Response.json([]);
           rows.delete(id);
           return Response.json([{ id }]);
         }
-        return Response.json(id ? (rows.has(id) ? [rows.get(id)] : [])
+        return Response.json(id ? (rows.has(id) && rows.get(id).owner_id === owner ? [rows.get(id)] : [])
           : [...rows.values()].filter(row => row.owner_id === owner));
       };
       const mutation = (method, body, url = '/api/notes', token = validToken) => call('Bearer ' + token, method, {
@@ -171,21 +178,53 @@ test('stage 3 authenticates before querying notes and keeps server secrets priva
       assert.equal((await mutation('POST', { id: noteId, title: 'Duplicate', body: 'Synthetic content' })).statusCode, 409);
       const single = await call('Bearer ' + validToken, 'GET', { url: '/api/notes/' + noteId });
       assert.deepEqual(single.body, { id: noteId, title: 'Test A', body: 'Synthetic content' });
-      const updated = await mutation('PUT', { title: 'Updated', body: 'New synthetic content', owner_id: userB }, '/api/notes/' + noteId);
+      const beforeOwnerChange = databaseCalls;
+      const ownerChange = await mutation('PUT', { title: 'Changed owner', body: 'Synthetic content', owner_id: userB }, '/api/notes/' + noteId);
+      assert.equal(ownerChange.statusCode, 400);
+      assert.deepEqual(ownerChange.body, { error: 'OWNER_CHANGE_NOT_ALLOWED' });
+      assert.equal(databaseCalls, beforeOwnerChange);
+      assert.equal(rows.get(noteId).title, 'Test A');
+      assert.equal(rows.get(noteId).owner_id, userId);
+      const updated = await mutation('PUT', { title: 'Updated', body: 'New synthetic content' }, '/api/notes/' + noteId);
       assert.deepEqual(updated.body, { id: noteId, title: 'Updated', body: 'New synthetic content' });
       const ownList = await call('Bearer ' + validToken, 'GET', { url: '/api/notes?userId=' + userB, query: { userId: userB } });
       assert.equal(ownList.body.length, 2);
-      assert.ok(!ownList.body.some(row => row.id === 'legacy'));
+      assert.ok(!ownList.body.some(row => row.id === legacyNote || row.id === judgeNote));
       assert.deepEqual((await call('Bearer ' + tokenB)).body, []);
-      // Required stage 3 limitation: B can access A's known individual URL.
-      assert.equal((await call('Bearer ' + tokenB, 'GET', { url: '/api/notes/' + noteId })).statusCode, 200);
-      assert.equal((await mutation('PUT', { title: 'B edited A', body: 'Synthetic content' }, '/api/notes/' + noteId, tokenB)).statusCode, 200);
-      assert.equal(rows.get(noteId).owner_id, userId);
-      assert.equal((await call('Bearer ' + tokenB, 'DELETE', { url: '/api/notes/' + noteId })).statusCode, 200);
+      const bAdded = await mutation('POST', { title: 'Test B', body: 'Synthetic content', owner_id: userId }, '/api/notes', tokenB);
+      assert.equal(bAdded.statusCode, 201);
+      const bNote = bAdded.body.id;
+      assert.equal(rows.get(bNote).owner_id, userB);
+      assert.deepEqual((await call('Bearer ' + tokenB)).body.map(row => row.id), [bNote]);
+      for (const [token, foreignId, spoofedOwner] of [
+        [tokenB, noteId, userId], [validToken, bNote, userB],
+        [validToken, judgeNote, judgeUser], [tokenB, judgeNote, judgeUser],
+        [operatorToken, noteId, userId], [operatorToken, bNote, userB],
+        [validToken, legacyNote, userId], [tokenB, legacyNote, userB],
+      ]) {
+        const before = structuredClone(rows.get(foreignId));
+        const url = '/api/notes/' + foreignId + '?owner_id=' + spoofedOwner + '&userId=' + spoofedOwner;
+        const read = await call('Bearer ' + token, 'GET', {
+          url, query: { owner_id: spoofedOwner },
+          headers: { 'x-user-id': spoofedOwner, 'x-role': 'admin' },
+        });
+        assert.equal(read.statusCode, 404);
+        assert.deepEqual(read.body, { error: 'NOTE_NOT_FOUND' });
+        assert.equal((await mutation('PUT', { title: 'Foreign edit', body: 'Synthetic content' }, url, token)).statusCode, 404);
+        assert.equal((await call('Bearer ' + token, 'DELETE', { url })).statusCode, 404);
+        assert.deepEqual(rows.get(foreignId), before, 'foreign reads and writes preserve the row');
+      }
+      assert.equal((await call('Bearer ' + operatorToken, 'GET', { url: '/api/notes/' + judgeNote })).statusCode, 200);
+      assert.equal((await call('Bearer ' + tokenB, 'GET', { url: '/api/notes/' + bNote })).statusCode, 200);
+      assert.equal((await mutation('PUT', { title: 'B updated', body: 'Synthetic content' }, '/api/notes/' + bNote, tokenB)).statusCode, 200);
+      assert.equal(rows.get(bNote).owner_id, userB);
+      assert.equal((await call('Bearer ' + tokenB, 'DELETE', { url: '/api/notes/' + bNote })).statusCode, 200);
+      assert.equal((await call('Bearer ' + tokenB, 'GET', { url: '/api/notes/' + bNote })).statusCode, 404);
+      assert.equal((await call('Bearer ' + validToken, 'DELETE', { url: '/api/notes/' + noteId })).statusCode, 200);
       assert.equal((await call('Bearer ' + validToken, 'GET', { url: '/api/notes/' + noteId })).statusCode, 404);
       assert.equal((await mutation('PUT', { title: 'Missing', body: 'Synthetic content' }, '/api/notes/' + noteId)).statusCode, 404);
       assert.equal((await call('Bearer ' + validToken, 'DELETE', { url: '/api/notes/' + noteId })).statusCode, 404);
-      assert.ok(rows.has('legacy'), 'legacy DB notes are preserved');
+      assert.ok(rows.has(legacyNote), 'legacy DB notes are preserved');
       const before = databaseCalls;
       assert.equal((await mutation('POST', { id: 'bad-id', title: 'Test', body: 'Synthetic content' })).statusCode, 400);
       assert.equal((await mutation('POST', { title: '', body: 'Synthetic content' })).statusCode, 400);

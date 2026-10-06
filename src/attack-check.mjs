@@ -3,8 +3,8 @@
 import { randomUUID } from 'node:crypto';
 import { generateKeyPair, SignJWT } from 'jose';
 
-export async function runAttackChecks(config) {
-  if (![1, 2, 3].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+export async function runAttackChecks(config, { expectedCommit } = {}) {
+  if (![1, 2, 3, 4].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -16,7 +16,7 @@ export async function runAttackChecks(config) {
     throw new Error('aleph.config.json의 실제 배포 주소를 먼저 넣어 주세요.');
   }
   if (typeof config.sampleMarker !== 'string' || !config.sampleMarker) throw new Error('가상 메모의 확인 표시를 넣어 주세요.');
-  if (config.step === 3) {
+  if (config.step === 3 || config.step === 4) {
     const probeId = randomUUID();
     const notePath = `/api/notes/${probeId}`;
     const request = async (path, method = 'GET', authorization) => {
@@ -27,7 +27,7 @@ export async function runAttackChecks(config) {
         if (writes) headers['Content-Type'] = 'application/json';
         const response = await fetch(new URL(path, app), {
           method, headers, redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(10000),
-          body: writes ? JSON.stringify({ id: probeId, title: 'Self-check fixture', body: 'Synthetic self-check' }) : undefined,
+          body: writes ? JSON.stringify({ ...(method === 'POST' ? { id: probeId } : {}), title: 'Self-check fixture', body: 'Synthetic self-check' }) : undefined,
         });
         let data = null;
         try { data = await response.json(); } catch { /* Do not record raw responses. */ }
@@ -53,6 +53,7 @@ export async function runAttackChecks(config) {
     ];
     const results = await Promise.all([
       request('/data.json'), ...probes.map(([, path, method, authorization]) => request(path, method, authorization)),
+      ...(config.step === 4 ? [request('/aleph.json')] : []),
     ]);
     const staticResult = results[0];
     const empty = staticResult.status === 200 && Array.isArray(staticResult.data?.notes)
@@ -72,12 +73,35 @@ export async function runAttackChecks(config) {
           observed: result.status === 0 ? failed : rejected ? `HTTP 401: ${method} 요청을 자료 없이 거부`
             : `불일치: HTTP ${result.status}, 인증 거부 계약 미확인` };
       }),
-      { attackId: 'valid_account_crud', expected: '정상 A 계정의 메모 추가·수정·삭제가 유지되어야 함',
+      { attackId: 'valid_account_crud', expected: config.step === 4
+        ? 'A/B가 각자 본인 메모만 읽기·추가·수정·삭제할 수 있어야 함'
+        : '정상 A 계정의 메모 추가·수정·삭제가 유지되어야 함',
         observed: '도구 시험 미실행: 실제 계정 토큰을 사용하지 않음. 사용자 화면 확인은 설명에 별도 기록' },
       { attackId: 'expired_issuer_token', expected: '실제 발급자가 서명한 만료 토큰을 HTTP 401로 거부',
         observed: '미실행: 실제 발급자의 만료 토큰을 사용하지 않음. 로컬 가상 시험은 운영 판정이 아님' },
       { attackId: 'wrong_audience_issuer_token', expected: '실제 발급자가 다른 서비스용으로 서명한 토큰을 HTTP 401로 거부',
         observed: '미실행: 실제 발급자의 다른 대상 토큰을 사용하지 않음. 로컬 가상 시험은 운영 판정이 아님' },
+      ...(config.step === 4 ? [
+        { attackId: 'deployment_stage4_identity', expected: '배포 식별 JSON의 단계·저장소·커밋이 4단계 저장점과 일치해야 함',
+          observed: results[7].status === 0 ? failed
+            : results[7].status === 200 && results[7].data?.schema === 'aleph.defense.deployment.v1'
+              && results[7].data.step === 4 && typeof results[7].data.repoUrl === 'string'
+              && results[7].data.repoUrl.toLowerCase() === config.repoUrl.toLowerCase()
+              && typeof expectedCommit === 'string' && /^[a-f0-9]{40}$/u.test(expectedCommit)
+              && results[7].data.commit === expectedCommit
+              ? 'HTTP 200: 4단계 저장점 커밋과 배포 식별 정보 일치'
+              : `불일치: HTTP ${results[7].status}, 4단계 저장점 배포 일치 미확인` },
+        { attackId: 'foreign_owner_note_read', expected: '학생 시험 신원이 심판 소유 메모와 상대 계정 메모를 읽으면 HTTP 404로 거부',
+          observed: '미실행: 실제 학생·심판 신원을 사용한 교차 소유자 조회를 보내지 않음' },
+        { attackId: 'foreign_owner_note_edit', expected: '학생 시험 신원이 심판 소유 메모와 상대 계정 메모를 수정하면 HTTP 404로 거부',
+          observed: '미실행: 실제 학생·심판 신원을 사용한 교차 소유자 수정을 보내지 않음' },
+        { attackId: 'foreign_owner_note_delete', expected: 'B가 A 메모를 삭제하면 HTTP 404로 거부하고 A 메모를 보존',
+          observed: '미실행: 실제 A/B 계정으로 상대 메모 삭제 요청을 보내지 않음' },
+        { attackId: 'note_owner_change', expected: 'PUT 본문에 owner_id를 넣으면 HTTP 400으로 거부하고 기존 소유자를 유지',
+          observed: '미실행: 실제 로그인 신원으로 소유자 변경 요청을 보내지 않음' },
+        { attackId: 'anonymous_direct_data_api', expected: 'anon 키만 사용하는 직접 Data API는 메모 접근을 거부',
+          observed: '미실행: 실제 anon 키로 직접 Data API 요청을 보내지 않음. authenticated 역할 직접 접근은 점수에서 제외' },
+      ] : []),
     ];
   }
   if (config.step === 2) {
