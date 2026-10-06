@@ -6,8 +6,8 @@ const root = resolve(import.meta.dirname, '..');
 const source = resolve(root, 'data.json');
 const output = resolve(root, 'public', 'data.json');
 const config = JSON.parse(await readFile(resolve(root, 'aleph.config.json'), 'utf8'));
-if (config.step !== 1 && config.step !== 2) {
-  throw new Error('현재 빌드는 1·2단계를 지원합니다. 해당 단계의 자료 보호 구현을 확인하세요.');
+if (![1, 2, 3].includes(config.step)) {
+  throw new Error('현재 빌드는 1~3단계를 지원합니다. 해당 단계의 자료 보호 구현을 확인하세요.');
 }
 const data = JSON.parse(await readFile(source, 'utf8'));
 if (!Array.isArray(data.notes)) {
@@ -19,7 +19,7 @@ if (config.step === 1) {
   console.log('실습용 공개 자료를 public/data.json에 복사했습니다.');
 } else {
   if (data.notes.length !== 0) {
-    throw new Error('2단계에서는 원본 data.json에도 메모 본문을 남기면 안 됩니다.');
+    throw new Error('2단계부터는 원본 data.json에도 메모 본문을 남기면 안 됩니다.');
   }
   await writeFile(output, `${JSON.stringify({ notes: [] }, null, 2)}\n`, 'utf8');
   console.log('메모와 1단계 확인 표시가 없는 public/data.json을 생성했습니다. 자료는 /api/notes에서 읽습니다.');

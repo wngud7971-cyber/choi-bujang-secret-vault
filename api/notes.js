@@ -1,11 +1,20 @@
-// Stage 2 intentionally has no visitor authentication. Fictional notes only.
+import config from '../aleph.config.json' with { type: 'json' };
+import { createLoginVerifier } from '../src/verify-login.mjs';
+
+let loginVerifier;
+let verifierKey;
+
+function unauthorized(response) {
+  response.setHeader('WWW-Authenticate', 'Bearer');
+  return response.status(401).json({ error: 'LOGIN_REQUIRED' });
+}
+
+// Stage 3 checks identity. Ownership checks follow in stage 4.
 export default async function handler(request, response) {
   response.setHeader('Cache-Control', 'no-store');
   response.setHeader('X-Content-Type-Options', 'nosniff');
-  if (request.method !== 'GET') {
-    response.setHeader('Allow', 'GET');
-    return response.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
-  }
+  const authorization = request.headers?.authorization;
+  if (typeof authorization !== 'string' || !authorization) return unauthorized(response);
 
   const urlValue = process.env.SUPABASE_URL;
   const secretKey = process.env.SUPABASE_SECRET_KEY;
@@ -14,14 +23,33 @@ export default async function handler(request, response) {
     const base = new URL(urlValue);
     if (base.protocol !== 'https:' || base.username || base.password
         || base.pathname !== '/' || base.search || base.hash
-        || typeof secretKey !== 'string' || !secretKey.trim()) {
+        || typeof secretKey !== 'string' || !secretKey.trim()
+        || secretKey !== secretKey.trim()
+        || config.identityProvider?.issuer !== `${base.origin}/auth/v1`) {
       throw new Error('invalid_server_configuration');
+    }
+    if (!loginVerifier || verifierKey !== secretKey) {
+      loginVerifier = createLoginVerifier({ config, supabaseSecretKey: secretKey });
+      verifierKey = secretKey;
     }
     endpoint = new URL('/rest/v1/training_notes', base);
     endpoint.searchParams.set('select', 'id,title,content');
     endpoint.searchParams.set('order', 'position.asc,id.asc');
   } catch {
     return response.status(503).json({ error: 'NOTES_SERVER_NOT_CONFIGURED' });
+  }
+
+  let identity;
+  try {
+    identity = await loginVerifier(authorization);
+  } catch {
+    return unauthorized(response);
+  }
+  if (!identity) return unauthorized(response);
+  // Query parameters, request bodies and custom user/role headers are not identities.
+  if (request.method !== 'GET') {
+    response.setHeader('Allow', 'GET');
+    return response.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
   }
 
   try {

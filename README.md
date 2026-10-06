@@ -1,4 +1,14 @@
-# BYTE BACK · 2단계 자료실
+# BYTE BACK · 3단계 자료실 (제작 2까지)
+
+Supabase Auth 이메일·비밀번호 로그인과 로그아웃 화면을 붙였고, `api/notes.js`는 기존 `src/verify-login.mjs`를 변경 없이 사용해 요청 토큰을 검증합니다. 토큰이 없거나 유효하지 않으면 메모 없이 HTTP 401로 거부하며 브라우저의 `userId`·`role`은 신원으로 사용하지 않습니다. 로그인 뒤에는 Authorization 헤더로 SDK의 접근 토큰을 보내 자료를 조회합니다. 로그아웃하면 화면의 메모를 지우고 이전 요청의 늦은 응답도 폐기합니다.
+
+`aleph.config.json`은 3단계이며 `identityProvider`에 Supabase 발급자·대상·JWKS 공개 주소를 기록했습니다. `judgeIssuer`는 기존 값을 유지합니다. 공개 정적 JSON은 계속 빈 메모 배열만 포함하고, 빌드는 3단계를 지원합니다. 화면에는 공개용 publishable key만 사용하며 서버 전용 키는 기존 Vercel 환경변수에서 읽습니다.
+
+아직 메모 추가·수정·삭제와 소유자 검사는 구현하지 않았습니다. 현재 API는 로그인한 요청의 목록 GET만 지원합니다. 제작 3에서 실제 CRUD 경로를 `allowedRoutes`에 기록하고, 소유자별 접근 제한은 4단계에서 진행합니다. 지금 저장점이나 제출 묶음을 생성하면 아직 완료되지 않은 제작 3을 완료한 것으로 취급하지 않습니다.
+
+실행 확인: `node scripts/build-public.mjs --local`. 로컬 시험: `node --test test/notes.test.mjs test/auth-ui.test.mjs test/r5.test.mjs test/package-starter.test.mjs test/build-public.test.mjs`. 시험 토큰과 공개키는 시험 중 생성하며 실제 계정·서버·심판을 사용하지 않습니다. 재배포 뒤 시크릿 창에서 무로그인 자료 조회 거부와 정상 A 계정 조회를 별도로 확인해야 합니다. 제작 2의 실제 재배포·A 계정 조회·심판 판정은 아직 미확인입니다.
+
+## 2단계 기록 (이전 구현)
 
 현재 로컬 구현은 메모를 공개 파일에서 제거하고 Supabase 학습 DB를 Vercel 서버 함수로 읽도록 변경한 상태입니다. 가상 메모 네 건만 사용합니다. 화면은 `GET /api/notes`를 호출하며 `data.json`과 `public/data.json`은 `{ "notes": [] }`입니다. 2단계 빌드는 공개 메모와 1단계 확인 표시를 복사하지 않고 빈 메모 JSON을 생성하며, 원본에 메모가 다시 들어가면 실패합니다. 배포 식별 JSON에도 2단계부터 1단계 확인 표시를 넣지 않습니다.
 

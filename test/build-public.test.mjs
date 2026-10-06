@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { test } from 'node:test';
 
-test('stage 2 build removes a stale public marker from data and deployment identity', async t => {
+for (const step of [2, 3]) test(`stage ${step} build removes a stale public marker from data and deployment identity`, async t => {
   const temporaryRoot = resolve(tmpdir());
   const fixture = await mkdtemp(join(temporaryRoot, 'stage2-build-'));
   t.after(async () => {
@@ -20,7 +20,7 @@ test('stage 2 build removes a stale public marker from data and deployment ident
     await copyFile(new URL(`../scripts/${script}`, import.meta.url), join(fixture, 'scripts', script));
   }
   const config = {
-    step: 2, sampleMarker: 'SAMPLE_NOTE_1',
+    step, sampleMarker: 'SAMPLE_NOTE_1',
     judgeIssuer: 'https://aleph-judge-production.up.railway.app/defense/judge',
   };
   // Simulate an old marker-bearing source and stale public output from stage 1.
@@ -37,7 +37,7 @@ test('stage 2 build removes a stale public marker from data and deployment ident
   });
   assert.deepEqual(JSON.parse(await readFile(join(fixture, 'public', 'data.json'), 'utf8')), { notes: [] });
   const identity = JSON.parse(await readFile(join(fixture, 'public', 'aleph.json'), 'utf8'));
-  assert.equal(identity.step, 2);
+  assert.equal(identity.step, step);
   assert.ok(!Object.hasOwn(identity, 'sampleMarker'));
   assert.ok(!JSON.stringify(identity).includes(config.sampleMarker));
 });

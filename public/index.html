@@ -53,8 +53,8 @@
       </div>
       <p id="auth-message" role="status" aria-live="polite"></p>
     </section>
-    <div class="notice">로그인 화면을 붙이는 중입니다. 자료 API는 아직 로그인 없이 호출할 수 있습니다. 다음 작업에서 서버가 로그인 토큰을 검사합니다.</div>
-    <ul id="notes" aria-live="polite"><li>가상 자료를 불러오는 중입니다.</li></ul>
+    <div class="notice">자료를 보려면 로그인해 주세요. 서버가 로그인 토큰을 검사합니다. 계정별 소유자 접근 검사는 4단계에서 추가합니다.</div>
+    <ul id="notes" aria-live="polite"><li>로그인하면 가상 자료를 볼 수 있습니다.</li></ul>
   </main>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
   <script type="module" id="auth-script">
@@ -67,9 +67,56 @@
     const signedInEmail = document.querySelector('#signed-in-email');
     const status = document.querySelector('#auth-status');
     const message = document.querySelector('#auth-message');
+    const list = document.querySelector('#notes');
     let client;
     let ready = false;
     let busy = false;
+    let activeToken = null;
+    let notesRequest = 0;
+    let notesAbort;
+
+    function showNotesMessage(text) {
+      const item = document.createElement('li');
+      item.textContent = text;
+      list.replaceChildren(item);
+    }
+
+    async function loadNotes(token, requestId) {
+      showNotesMessage('가상 자료를 불러오는 중입니다.');
+      const controller = new AbortController();
+      notesAbort = controller;
+      try {
+        const response = await fetch('/api/notes', {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store', redirect: 'error', signal: controller.signal,
+        });
+        if (response.status === 401) throw new Error('로그인 확인에 실패했습니다. 로그아웃 후 다시 로그인해 주세요.');
+        if (!response.ok) throw new Error('메모를 불러올 수 없습니다. 서버 연결 설정을 확인해 주세요.');
+        const data = await response.json();
+        if (!Array.isArray(data.notes) || data.notes.some(note => !note
+            || typeof note.id !== 'string' || typeof note.title !== 'string'
+            || typeof note.content !== 'string')) throw new Error('자료 형식이 맞지 않습니다.');
+        // A response started before logout or an account change must not restore old notes.
+        if (requestId !== notesRequest) return;
+        if (data.notes.length === 0) {
+          showNotesMessage('아직 등록된 가상 메모가 없습니다.');
+          return;
+        }
+        list.replaceChildren(...data.notes.map(note => {
+          const item = document.createElement('li');
+          const title = document.createElement('strong');
+          const content = document.createElement('span');
+          title.textContent = note.title;
+          content.textContent = note.content;
+          item.append(title, content);
+          return item;
+        }));
+      } catch (error) {
+        if (requestId !== notesRequest || controller.signal.aborted) return;
+        showNotesMessage(error instanceof TypeError
+          ? '자료 서버에 연결할 수 없습니다. 인터넷 연결을 확인해 주세요.' : error.message);
+      }
+    }
 
     function showMessage(text, isError = false) {
       message.textContent = text;
@@ -92,6 +139,13 @@
       status.textContent = loggedIn ? '로그인됨' : '로그인하지 않은 상태입니다.';
       signedInEmail.textContent = session?.user?.email ?? '';
       password.value = '';
+      const token = loggedIn && typeof session.access_token === 'string' ? session.access_token : null;
+      if (token === activeToken) return;
+      activeToken = token;
+      const requestId = ++notesRequest;
+      notesAbort?.abort();
+      if (token) void loadNotes(token, requestId);
+      else showNotesMessage('로그인하면 가상 자료를 볼 수 있습니다.');
     }
 
     function failureReason(error) {
@@ -168,29 +222,6 @@
     } catch {
       status.textContent = '로그인 기능을 준비하지 못했습니다.';
       showMessage('로그인 도구를 불러오지 못했습니다. 인터넷 연결을 확인하고 새로고침해 주세요.', true);
-    }
-  </script>
-  <script type="module">
-    const list = document.querySelector('#notes');
-    try {
-      const response = await fetch('/api/notes', { cache: 'no-store' });
-      if (!response.ok) throw new Error('메모를 불러올 수 없습니다. 서버 연결 설정을 확인해 주세요.');
-      const data = await response.json();
-      if (!Array.isArray(data.notes)) throw new Error('자료 형식이 맞지 않습니다.');
-      if (data.notes.length === 0) throw new Error('아직 등록된 가상 메모가 없습니다.');
-      list.replaceChildren(...data.notes.map(note => {
-        const item = document.createElement('li');
-        const title = document.createElement('strong');
-        const content = document.createElement('span');
-        title.textContent = note.title;
-        content.textContent = note.content;
-        item.append(title, content);
-        return item;
-      }));
-    } catch (error) {
-      const item = document.createElement('li');
-      item.textContent = error.message;
-      list.replaceChildren(item);
     }
   </script>
 </body>
