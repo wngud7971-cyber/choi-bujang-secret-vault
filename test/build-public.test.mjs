@@ -22,6 +22,7 @@ for (const step of [2, 3, 4, 5]) test(`stage ${step} build removes a stale publi
   const config = {
     step, sampleMarker: 'SAMPLE_NOTE_1',
     judgeIssuer: 'https://aleph-judge-production.up.railway.app/defense/judge',
+    ...(step === 5 ? { originalApiUrl: 'https://training-project.supabase.co/rest/v1/training_notes' } : {}),
   };
   // Simulate an old marker-bearing source and stale public output from stage 1.
   await writeFile(join(fixture, 'aleph.config.json'), JSON.stringify(config));
@@ -38,6 +39,7 @@ for (const step of [2, 3, 4, 5]) test(`stage ${step} build removes a stale publi
   assert.deepEqual(JSON.parse(await readFile(join(fixture, 'public', 'data.json'), 'utf8')), { notes: [] });
   const identity = JSON.parse(await readFile(join(fixture, 'public', 'aleph.json'), 'utf8'));
   assert.equal(identity.step, step);
+  if (step === 5) assert.equal(identity.originalApiUrl, config.originalApiUrl);
   assert.ok(!Object.hasOwn(identity, 'sampleMarker'));
   assert.ok(!JSON.stringify(identity).includes(config.sampleMarker));
 });
