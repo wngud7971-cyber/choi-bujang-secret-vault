@@ -1,4 +1,20 @@
-# BYTE BACK · 4단계 저장점
+# BYTE BACK · 5단계 저장점
+
+브라우저 메모 읽기·추가·수정·삭제는 기존 Vercel 서버 함수만 사용합니다. Supabase Auth 로그인·로그아웃, 서버의 토큰 검증·소유자 검사, 서버 전용 환경변수는 그대로 유지했습니다. 제작 1의 브라우저 직접 자료 호출은 없어서 화면 코드는 수정하지 않았습니다.
+
+사용자가 학습 DB에서 `docs/STEP5_DATABASE.sql`을 실행한 결과 표를 제공했습니다. 적용 후 `anon`·`authenticated`의 테이블 CRUD·추가 권한·열 접근은 모두 false, PUBLIC 권한은 false, RLS는 true이며 `service_role`의 CRUD는 모두 true로 유지됩니다. 이 SQL은 `public.training_notes`만 대상으로 하며 메모·소유자·기존 정책·다른 테이블·서버 역할의 개별 권한을 보존합니다. 검사 실패 시 전체 트랜잭션이 취소됩니다.
+
+사용자는 실제 배포 화면에서 A의 추가·수정·삭제 정상 동작, B 목록에 B 메모만 표시되고 A 메모는 없는 것, 로그아웃 후 `/api/notes`의 `LOGIN_REQUIRED` 응답을 확인했습니다. 도구가 브라우저 publishable 키만으로 원본 Data API를 직접 조회한 결과 HTTP 401·권한 오류 `42501`이었고 메모 배열은 반환되지 않았습니다. 이 확인은 심판의 anon 키 시험과 별도입니다. 실제 B의 A 메모 단건 조회·수정·삭제 요청과 authenticated 토큰 직접 Data API 요청은 미실행입니다.
+
+`aleph.config.json`은 5단계이며 `originalApiUrl`에 학습용 `training_notes`의 쿼리 없는 원본 HTTPS 경로를 기록했습니다. 기존 저장소·배포 주소·발급자·대상·JWKS·허용 경로·운영 측 `judgeIssuer`는 유지합니다. 빌드와 배포 식별 JSON은 1~5단계를 지원하며 공개 메모 JSON은 빈 배열입니다. 판정기 규칙은 실제 기존 구현인 `starter.deny`만 유지합니다.
+
+다시 실행: `node scripts/build-public.mjs --local`. 로컬 확인: `node --test test/notes.test.mjs test/auth-ui.test.mjs test/r5.test.mjs test/package-starter.test.mjs test/build-public.test.mjs`. 가상 인증·메모로 기존 정상·거부 동작을 확인하며 실제 DB 권한이나 심판 판정으로 대신하지 않습니다. 권한 확인 SQL과 전후 결과 설명은 `docs/STEP5_DATABASE.sql`에 있습니다. 4단계 SQL은 authenticated 직접 CRUD 권한을 다시 부여하므로 5단계 적용 후 재실행하지 않습니다.
+
+저장점 커밋 후 `npm run bundle`로 `artifacts/submission.json`을 생성합니다. 자기 점검은 실제 배포의 공개 JSON, 무로그인 다섯 경로, 가상 서명 거부, 배포 단계·저장점 커밋 일치, publishable 키의 원본 직접 조회, 배포 HTML·인라인 코드의 비밀값·시드 표식 패턴을 확인합니다. 미실행 계정·anon 키 검사는 미실행으로 남깁니다. 응답 본문·메모·토큰·키는 제출 묶음에서 제외하고 `bundle-notes.json`·`artifacts/submission.json`은 커밋하지 않습니다.
+
+현재 5단계 저장점의 GitHub 업로드·재배포·심판 접수/판정은 미확인입니다. 기존 배포에서 DB 권한 변경 후 화면 기능이 유지돼도 배포 식별 JSON의 단계와 커밋이 5단계 저장점으로 바뀌었다는 뜻은 아닙니다. 업로드·재배포 후 배포 단계·커밋을 대조하고 제출 묶음을 다시 생성합니다.
+
+## 4단계 저장점 (이전 기록)
 
 4단계의 자료 API는 검증된 사용자 ID와 `training_notes.owner_id`를 DB 요청에서 함께 비교합니다. 목록·단건 조회·수정·삭제는 본인 행만 허용하며, 다른 소유자와 소유자 없는 행의 단건 요청은 메모 없이 HTTP 404로 거부합니다. 추가는 확인된 사용자 ID를 소유자로 저장하고, 수정은 제목·본문만 갱신해 기존 소유자를 유지합니다. 수정 본문에 `owner_id`가 있으면 HTTP 400 `OWNER_CHANGE_NOT_ALLOWED`로 거부합니다. URL·본문·사용자 지정 헤더의 신원 정보는 인증 근거가 아닙니다. 기존 로그인·로그아웃과 응답 형식은 유지합니다.
 

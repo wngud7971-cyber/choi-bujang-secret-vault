@@ -35,7 +35,9 @@ test('build identity uses Vercel Git and deployment metadata', () => {
   assert.ok(!Object.hasOwn(deploymentIdentity(env, { ...config, step: 3 }), 'sampleMarker'));
   assert.equal(deploymentIdentity(env, { ...config, step: 4 }).step, 4);
   assert.ok(!Object.hasOwn(deploymentIdentity(env, { ...config, step: 4 }), 'sampleMarker'));
-  assert.throws(() => deploymentIdentity(env, { ...config, step: 5 }));
+  assert.equal(deploymentIdentity(env, { ...config, step: 5 }).step, 5);
+  assert.ok(!Object.hasOwn(deploymentIdentity(env, { ...config, step: 5 }), 'sampleMarker'));
+  assert.throws(() => deploymentIdentity(env, { ...config, step: 6 }));
 });
 
 test('first attack check reads public data.json without credentials', async () => {
@@ -142,6 +144,56 @@ test('stage 4 distinguishes deployment mismatch and unexecuted ownership checks 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('stage 5 checks public-key direct denial and static secrets without recording keys or response bodies', async () => {
+  const originalFetch = globalThis.fetch;
+  const stage5 = { ...config, step: 5, repoUrl: 'https://github.com/student-a/aleph-defense',
+    originalApiUrl: 'https://training-project.supabase.co/rest/v1/training_notes',
+    identityProvider: { issuer: 'https://training-project.supabase.co/auth/v1', audience: 'authenticated' } };
+  const expectedCommit = 'a'.repeat(40);
+  const sentinel = 'DO_NOT_INCLUDE_RESPONSE_BODY';
+  let directAllowed = false;
+  let unsafePage = false;
+  let directCalls = 0;
+  try {
+    globalThis.fetch = async (url, init) => {
+      if (url.origin === new URL(stage5.originalApiUrl).origin) {
+        directCalls++;
+        assert.equal(url.href, stage5.originalApiUrl);
+        assert.equal(init.method, undefined);
+        assert.equal(init.body, undefined);
+        assert.equal(init.headers.Authorization, undefined);
+        assert.equal(typeof init.headers.apikey, 'string');
+        assert.ok(init.headers.apikey.startsWith('sb_publishable_'));
+        return directAllowed ? Response.json([{ body: sentinel }])
+          : Response.json({ code: '42501', message: sentinel }, { status: 401 });
+      }
+      if (url.pathname === '/data.json') return Response.json({ notes: [] });
+      if (url.pathname === '/aleph.json') return Response.json({
+        schema: 'aleph.defense.deployment.v1', step: 5, repoUrl: stage5.repoUrl, commit: expectedCommit,
+      });
+      if (url.pathname === '/') return new Response(unsafePage ? stage5.sampleMarker : '<html>public page</html>');
+      return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
+    };
+    const checks = await runAttackChecks(stage5, { expectedCommit });
+    assert.equal(checks.length, 18);
+    assert.equal(directCalls, 1);
+    const find = id => checks.find(check => check.attackId === id);
+    assert.match(find('deployment_stage5_identity').observed, /커밋과 배포 식별 정보 일치/u);
+    assert.match(find('publishable_direct_data_api').observed, /HTTP 401/u);
+    assert.match(find('public_browser_secret_scan').observed, /미검출/u);
+    assert.match(find('anonymous_direct_data_api').observed, /미실행/u);
+    assert.ok(!JSON.stringify(checks).includes('sb_publishable_'));
+    assert.ok(!JSON.stringify(checks).includes(sentinel));
+    directAllowed = true;
+    unsafePage = true;
+    const failed = await runAttackChecks(stage5, { expectedCommit });
+    for (const id of ['publishable_direct_data_api', 'public_browser_secret_scan']) {
+      assert.match(failed.find(check => check.attackId === id).observed, /^불일치/u);
+    }
+    assert.ok(!JSON.stringify(failed).includes(sentinel));
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test('stage 3 records actual anonymous rejection probes separately from unexecuted issuer and account checks', async () => {

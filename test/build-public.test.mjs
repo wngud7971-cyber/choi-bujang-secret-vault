@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { test } from 'node:test';
 
-for (const step of [2, 3, 4]) test(`stage ${step} build removes a stale public marker from data and deployment identity`, async t => {
+for (const step of [2, 3, 4, 5]) test(`stage ${step} build removes a stale public marker from data and deployment identity`, async t => {
   const temporaryRoot = resolve(tmpdir());
   const fixture = await mkdtemp(join(temporaryRoot, 'stage2-build-'));
   t.after(async () => {
