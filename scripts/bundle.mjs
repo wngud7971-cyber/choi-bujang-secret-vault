@@ -54,6 +54,15 @@ try {
       || !config.originalApiUrl.startsWith('https://'))) {
     fail('5단계부터 aleph.config.json의 originalApiUrl에 원본 자료 API의 HTTPS 주소가 필요합니다. 5단계 제작 2를 다시 확인해 주세요.');
   }
+  if (config.step === 5) {
+    const original = new URL(config.originalApiUrl);
+    if (original.protocol !== 'https:' || original.username || original.password
+        || original.search || original.hash
+        || original.origin !== new URL(config.identityProvider.issuer).origin
+        || original.pathname !== '/rest/v1/training_notes') {
+      fail('originalApiUrl에는 학습 메모 테이블의 쿼리 없는 원본 HTTPS 경로만 기록해 주세요.');
+    }
+  }
   if (config.step >= 3 && (!Array.isArray(config.allowedRoutes) || !config.allowedRoutes.length)) {
     fail('3단계부터 aleph.config.json의 allowedRoutes에 자료 API 경로가 필요합니다. 3단계 제작 3을 다시 확인해 주세요.');
   }
