@@ -1,4 +1,18 @@
-# BYTE BACK · 3단계 저장점
+# BYTE BACK · 4단계 저장점
+
+4단계의 자료 API는 검증된 사용자 ID와 `training_notes.owner_id`를 DB 요청에서 함께 비교합니다. 목록·단건 조회·수정·삭제는 본인 행만 허용하며, 다른 소유자와 소유자 없는 행의 단건 요청은 메모 없이 HTTP 404로 거부합니다. 추가는 확인된 사용자 ID를 소유자로 저장하고, 수정은 제목·본문만 갱신해 기존 소유자를 유지합니다. 수정 본문에 `owner_id`가 있으면 HTTP 400 `OWNER_CHANGE_NOT_ALLOWED`로 거부합니다. URL·본문·사용자 지정 헤더의 신원 정보는 인증 근거가 아닙니다. 기존 로그인·로그아웃과 응답 형식은 유지합니다.
+
+사용자가 학습 DB의 기존 가상 메모 세 건을 A에게 연결하고 B 시험 메모 한 건을 추가한 결과 화면을 제공했습니다. 기존 네 번째 메모는 보존하도록 SQL을 제안했습니다. 사용자는 `docs/STEP4_RLS.sql` 실행 결과도 제공했습니다. 적용 후 `anon`의 네 작업 권한은 모두 false, `authenticated`는 SELECT·INSERT·UPDATE·DELETE만 true, 추가 권한과 권한 재부여는 false, RLS는 true입니다. SQL은 해당 메모 테이블의 기존 정책을 교체해 SELECT·DELETE는 기존 행 USING, INSERT는 새 행 WITH CHECK, UPDATE는 두 조건 모두 `auth.uid() = owner_id`로 제한합니다. 다른 테이블·메모 내용·서버 역할 권한은 변경하지 않습니다. 이 화면은 권한 설정 확인이며 실제 A/B 요청이나 심판 판정은 아닙니다.
+
+`aleph.config.json`은 4단계이며 기존 저장소·배포 주소·Supabase 발급자·대상·JWKS와 운영 측 `judgeIssuer`를 유지합니다. 실제 경로는 GET·POST `/api/notes`, GET·PUT·DELETE `/api/notes/:id`입니다. 1~4단계 빌드가 지원되며 공개 JSON은 계속 빈 메모 배열입니다. 판정기는 기존에 실제 구현된 `starter.deny`만 기록하며 6단계 정책을 추가했다고 주장하지 않습니다.
+
+다시 실행: `node scripts/build-public.mjs --local`. 로컬 가상 시험: `node --test test/notes.test.mjs test/auth-ui.test.mjs test/r5.test.mjs test/package-starter.test.mjs test/build-public.test.mjs`. 시험에는 가상 서명 신원과 메모만 사용합니다. A/B의 본인 CRUD, 양방향 상대 메모 조회·수정·삭제 거부, 학생 신원의 심판 소유 메모 거부, 소유자 변경 거부와 로그인·로그아웃 회귀를 검사합니다.
+
+저장점 커밋 후 `npm run bundle`로 제출 JSON을 생성합니다. 자기 점검은 현재 배포의 공개 JSON·무로그인 다섯 경로·가상 서명 토큰 거부 응답과 배포 식별 JSON만 실제 요청합니다. 실제 A/B CRUD·교차 소유자 요청·소유자 변경·발급자의 만료/다른 대상 토큰·anon 키의 직접 Data API 요청은 실행 전까지 미실행으로 기록합니다. authenticated 역할 직접 접근은 점수 확인에 포함하지 않습니다. 묶음은 메모 본문·토큰·이메일 없이 파일명과 요약만 포함하며 `bundle-notes.json`, `artifacts/submission.json`과 로컬 메모 SQL은 커밋하지 않습니다.
+
+현재 로컬 4단계 변경의 GitHub 업로드·실제 재배포·심판 접수/판정은 미확인입니다. 제출 JSON이 생성되어도 4단계가 배포되었다는 뜻은 아닙니다. 업로드와 배포 후 자료실에서 A/B 각각 로그인 → 본인 메모 읽기·추가·수정·삭제 → 로그아웃을 확인합니다. B 로그인 목록에 A 메모가 없어야 하며, 상대 메모 상세 URL을 직접 요청해도 404여야 합니다. 배포 식별 JSON의 단계·커밋이 저장점과 일치하는지 확인한 뒤 제출 묶음을 다시 생성합니다.
+
+## 3단계 저장점 (이전 기록)
 
 Supabase Auth 이메일·비밀번호 로그인과 로그아웃 화면을 붙였고, `api/notes.js`는 기존 `src/verify-login.mjs`를 변경 없이 사용해 요청 토큰을 검증합니다. 토큰이 없거나 유효하지 않으면 메모 없이 HTTP 401로 거부하며 브라우저의 `userId`·`role`은 신원으로 사용하지 않습니다. 로그인 뒤에는 Authorization 헤더로 SDK의 접근 토큰을 보내 자료를 조회합니다. 로그아웃하면 화면의 메모를 지우고 이전 요청의 늦은 응답도 폐기합니다.
 

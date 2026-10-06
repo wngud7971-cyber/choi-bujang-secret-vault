@@ -12,7 +12,7 @@ function unauthorized(response) {
   return response.status(401).json({ error: 'LOGIN_REQUIRED' });
 }
 
-// Stage 3 checks identity. Ownership checks follow in stage 4.
+// Stage 4 binds every operation to the verified identity's own notes.
 export default async function handler(request, response) {
   response.setHeader('Cache-Control', 'no-store');
   response.setHeader('X-Content-Type-Options', 'nosniff');
@@ -77,6 +77,9 @@ export default async function handler(request, response) {
           || typeof payload.body !== 'string' || !payload.body.trim() || payload.body.length > 10000) {
         return response.status(400).json({ error: 'INVALID_NOTE' });
       }
+      if (request.method === 'PUT' && Object.hasOwn(payload, 'owner_id')) {
+        return response.status(400).json({ error: 'OWNER_CHANGE_NOT_ALLOWED' });
+      }
       if (request.method === 'POST') {
         if (payload.id !== undefined && (typeof payload.id !== 'string' || !UUID.test(payload.id))) {
           return response.status(400).json({ error: 'INVALID_NOTE_ID' });
@@ -88,10 +91,12 @@ export default async function handler(request, response) {
     }
   }
 
-  // Only list reads are filtered by owner in stage 3. Individual operations
-  // intentionally check login only; stage 4 adds their ownership checks.
-  if (request.method === 'GET' && !id) {
+  // Apply owner and ID together in the database operation, avoiding a gap
+  // between checking the existing owner and reading, updating or deleting.
+  if (request.method !== 'POST') {
     endpoint.searchParams.set('owner_id', `eq.${identity.userId}`);
+  }
+  if (request.method === 'GET' && !id) {
     endpoint.searchParams.set('order', 'created_at.asc,id.asc');
   } else if (request.method !== 'POST') {
     endpoint.searchParams.set('id', `eq.${id}`);
@@ -105,7 +110,8 @@ export default async function handler(request, response) {
   if (request.method !== 'GET') options.headers.Prefer = 'return=representation';
   if (payload) {
     options.headers['Content-Type'] = 'application/json';
-    // Discard browser-provided owner_id, userId, role and other fields.
+    // Inserts bind the new owner to the verified identity. Updates only write
+    // title/content, so the matched existing owner remains the new row's owner.
     options.body = JSON.stringify(request.method === 'POST'
       ? { id, title: payload.title.trim(), content: payload.body, owner_id: identity.userId, position: 0 }
       : { title: payload.title.trim(), content: payload.body });

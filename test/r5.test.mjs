@@ -33,7 +33,9 @@ test('build identity uses Vercel Git and deployment metadata', () => {
   assert.ok(!Object.hasOwn(deploymentIdentity(env, { ...config, step: 2 }), 'sampleMarker'));
   assert.equal(deploymentIdentity(env, { ...config, step: 3 }).step, 3);
   assert.ok(!Object.hasOwn(deploymentIdentity(env, { ...config, step: 3 }), 'sampleMarker'));
-  assert.throws(() => deploymentIdentity(env, { ...config, step: 4 }));
+  assert.equal(deploymentIdentity(env, { ...config, step: 4 }).step, 4);
+  assert.ok(!Object.hasOwn(deploymentIdentity(env, { ...config, step: 4 }), 'sampleMarker'));
+  assert.throws(() => deploymentIdentity(env, { ...config, step: 5 }));
 });
 
 test('first attack check reads public data.json without credentials', async () => {
@@ -95,6 +97,48 @@ test('stage 2 checks static removal, public API weakness and POST rejection with
     const failures = await runAttackChecks({ ...config, step: 2 });
     assert.ok(failures.every(check => check.observed.startsWith('미확인')));
     assert.ok(!JSON.stringify(failures).includes(bodySentinel));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('stage 4 distinguishes deployment mismatch and unexecuted ownership checks from anonymous probe results', async () => {
+  const originalFetch = globalThis.fetch;
+  const stage4 = { ...config, step: 4, repoUrl: 'https://github.com/student-a/aleph-defense',
+    identityProvider: { issuer: 'https://training-project.supabase.co/auth/v1', audience: 'authenticated' } };
+  const expectedCommit = 'a'.repeat(40);
+  let identity = { schema: 'aleph.defense.deployment.v1', step: 4,
+    repoUrl: stage4.repoUrl, commit: expectedCommit };
+  const calls = [];
+  try {
+    globalThis.fetch = async (url, init) => {
+      calls.push({ path: url.pathname, method: init.method, body: init.body });
+      if (url.pathname === '/data.json') return Response.json({ notes: [] });
+      if (url.pathname === '/aleph.json') return Response.json(identity);
+      return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
+    };
+    const checks = await runAttackChecks(stage4, { expectedCommit });
+    assert.equal(calls.length, 8);
+    assert.equal(checks.length, 16);
+    const find = id => checks.find(check => check.attackId === id);
+    assert.match(find('deployment_stage4_identity').observed, /커밋과 배포 식별 정보 일치/u);
+    for (const id of ['valid_account_crud', 'foreign_owner_note_read', 'foreign_owner_note_edit',
+      'foreign_owner_note_delete', 'note_owner_change', 'anonymous_direct_data_api']) {
+      assert.match(find(id).observed, /미실행/u);
+    }
+    assert.match(find('anonymous_direct_data_api').observed, /authenticated 역할 직접 접근은 점수에서 제외/u);
+    const put = calls.find(call => call.method === 'PUT');
+    assert.deepEqual(Object.keys(JSON.parse(put.body)).sort(), ['body', 'title']);
+    assert.ok(!JSON.stringify(checks).includes('Synthetic self-check'));
+    assert.ok(!JSON.stringify(checks).includes('Bearer '));
+    for (const mismatch of [
+      { ...identity, step: 3 }, { ...identity, commit: 'b'.repeat(40) },
+      { ...identity, repoUrl: 123 },
+    ]) {
+      identity = mismatch;
+      const results = await runAttackChecks(stage4, { expectedCommit });
+      assert.match(results.find(check => check.attackId === 'deployment_stage4_identity').observed, /^불일치/u);
+    }
   } finally {
     globalThis.fetch = originalFetch;
   }
