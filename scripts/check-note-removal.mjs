@@ -10,6 +10,14 @@ const git = (...args) => execFileSync('git', ['-C', root, ...args], {
 // Read the original fictional sentences from history; never copy them into this script.
 const baseline = JSON.parse(git('show', '8a0927400ec0d0a8ff08146db773fec80fb6d216:data.json'));
 const matches = text => baseline.notes.some(note => text.includes(note.content));
+const hasStaticMarker = text => {
+  if (text.includes(baseline.sampleMarker)) return true;
+  try {
+    const data = JSON.parse(text);
+    return (data !== null && typeof data === 'object' && Object.hasOwn(data, 'sampleMarker'))
+      || JSON.stringify(data).includes(baseline.sampleMarker);
+  } catch { return false; }
+};
 const secret = /-----BEGIN [A-Z ]*PRIVATE KEY-----|\bsb_secret_[A-Za-z0-9_-]{12,}|\bsk-[A-Za-z0-9_-]{20,}|\beyJ[A-Za-z0-9_-]{12,}\.eyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{8,}/u;
 const get = async url => {
   const result = await fetch(url, {
@@ -25,14 +33,16 @@ try {
     .split('\0').filter(Boolean);
   const localHits = [];
   const secretHits = [];
+  const localMarkerHits = [];
   for (const file of files) {
     const text = await readFile(resolve(root, file), 'utf8');
     if (matches(text)) localHits.push(file);
     if (secret.test(text)) secretHits.push(file);
+    if ((file === 'data.json' || file.startsWith('public/')) && hasStaticMarker(text)) localMarkerHits.push(file);
   }
   console.log(JSON.stringify({ scope: 'local_publishable_files', filesChecked: files.length,
-    noteMatches: localHits, secretMatches: secretHits }));
-  assert.equal(localHits.length + secretHits.length, 0, 'LOCAL_SCAN_FAILED');
+    noteMatches: localHits, secretMatches: secretHits, staticMarkerMatches: localMarkerHits }));
+  assert.equal(localHits.length + secretHits.length + localMarkerHits.length, 0, 'LOCAL_SCAN_FAILED');
   assert.deepEqual(JSON.parse(await readFile(resolve(root, 'public/data.json'), 'utf8')).notes, []);
   git('check-ignore', 'private/step2-notes.sql');
   if (process.argv.includes('--live')) {
@@ -48,6 +58,7 @@ try {
     const blobs = tree.tree.filter(item => item.type === 'blob');
     const repoHits = [];
     const repoSecretHits = [];
+    const repoMarkerHits = [];
     // Bounded concurrency, with results limited to file names and counts.
     let cursor = 0;
     await Promise.all(Array.from({ length: 4 }, async () => {
@@ -57,10 +68,12 @@ try {
         const text = await get(`https://raw.githubusercontent.com/${repo[1]}/${repo[2]}/${latest.sha}/${path}`);
         if (matches(text)) repoHits.push(item.path);
         if (secret.test(text)) repoSecretHits.push(item.path);
+        if ((item.path === 'data.json' || item.path.startsWith('public/')) && hasStaticMarker(text)) repoMarkerHits.push(item.path);
       }
     }));
     console.log(JSON.stringify({ scope: 'github_latest', commit: latest.sha,
-      filesChecked: blobs.length, noteMatches: repoHits.sort(), secretMatches: repoSecretHits.sort() }));
+      filesChecked: blobs.length, noteMatches: repoHits.sort(), secretMatches: repoSecretHits.sort(),
+      staticMarkerMatches: repoMarkerHits.sort() }));
 
     const app = new URL(config.publicAppUrl);
     assert.ok(app.protocol === 'https:' && !app.username && !app.password
@@ -70,18 +83,21 @@ try {
     if (!staticPaths.includes('/aleph.json')) staticPaths.push('/aleph.json');
     const deployedHits = [];
     const deployedSecretHits = [];
+    const deployedMarkerHits = [];
     let deployedCommit;
     for (const path of staticPaths) {
       const text = await get(new URL(path, app));
       if (matches(text)) deployedHits.push(path);
       if (secret.test(text)) deployedSecretHits.push(path);
+      if (hasStaticMarker(text)) deployedMarkerHits.push(path);
       if (path === '/data.json') assert.deepEqual(JSON.parse(text).notes, []);
       if (path === '/aleph.json') deployedCommit = JSON.parse(text).commit;
     }
     console.log(JSON.stringify({ scope: 'current_deployed_static_files', filesChecked: staticPaths.length,
-      noteMatches: deployedHits, secretMatches: deployedSecretHits,
+      noteMatches: deployedHits, secretMatches: deployedSecretHits, staticMarkerMatches: deployedMarkerHits,
       deployedCommit, matchesGithubLatest: deployedCommit === latest.sha }));
-    assert.equal(repoHits.length + repoSecretHits.length + deployedHits.length + deployedSecretHits.length,
+    assert.equal(repoHits.length + repoSecretHits.length + repoMarkerHits.length
+      + deployedHits.length + deployedSecretHits.length + deployedMarkerHits.length,
       0, 'LIVE_SCAN_FAILED');
     assert.equal(deployedCommit, latest.sha, 'DEPLOYMENT_IS_NOT_LATEST');
   } else {

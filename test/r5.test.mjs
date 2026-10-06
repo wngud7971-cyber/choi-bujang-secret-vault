@@ -30,6 +30,7 @@ test('build identity uses Vercel Git and deployment metadata', () => {
   assert.throws(() => deploymentIdentity({ ...env, VERCEL_GIT_PROVIDER: undefined }, config));
   assert.throws(() => deploymentIdentity({ ...env, VERCEL_GIT_COMMIT_SHA: 'short' }, config));
   assert.equal(deploymentIdentity(env, { ...config, step: 2 }).step, 2);
+  assert.ok(!Object.hasOwn(deploymentIdentity(env, { ...config, step: 2 }), 'sampleMarker'));
   assert.throws(() => deploymentIdentity(env, { ...config, step: 3 }));
 });
 
@@ -65,7 +66,7 @@ test('stage 2 checks static removal, public API weakness and POST rejection with
     globalThis.fetch = async (url, init) => {
       assert.equal(init.headers, undefined);
       if (url.pathname === '/data.json') {
-        return Response.json({ sampleMarker: config.sampleMarker, notes: [] });
+        return Response.json({ notes: [] });
       }
       if (init.method === 'POST') return Response.json({ error: 'METHOD_NOT_ALLOWED' }, { status: 405 });
       return Response.json({ notes: Array.from({ length: 4 }, (_, i) => ({
@@ -78,6 +79,16 @@ test('stage 2 checks static removal, public API weakness and POST rejection with
     assert.match(checks[1].observed, /방문자 인증 미구현/u);
     assert.match(checks[2].observed, /HTTP 405/u);
     assert.ok(!JSON.stringify(checks).includes(bodySentinel));
+    const cleanFetch = globalThis.fetch;
+    for (const markedData of [
+      { sampleMarker: config.sampleMarker, notes: [] },
+      { notes: [], nested: { marker: config.sampleMarker } },
+    ]) {
+      globalThis.fetch = async (url, init) => url.pathname === '/data.json'
+        ? Response.json(markedData) : cleanFetch(url, init);
+      const marked = await runAttackChecks({ ...config, step: 2 });
+      assert.match(marked[0].observed, /^불일치/u);
+    }
     globalThis.fetch = async () => { throw new Error(bodySentinel); };
     const failures = await runAttackChecks({ ...config, step: 2 });
     assert.ok(failures.every(check => check.observed.startsWith('미확인')));

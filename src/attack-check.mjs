@@ -30,8 +30,9 @@ export async function runAttackChecks(config) {
       request('/data.json'), request('/api/notes'), request('/api/notes', 'POST'),
     ]);
     const empty = staticResult.status === 200
-      && staticResult.data?.sampleMarker === config.sampleMarker
-      && Array.isArray(staticResult.data?.notes) && staticResult.data.notes.length === 0;
+      && Array.isArray(staticResult.data?.notes) && staticResult.data.notes.length === 0
+      && !Object.hasOwn(staticResult.data, 'sampleMarker')
+      && !JSON.stringify(staticResult.data).includes(config.sampleMarker);
     const notes = apiResult.data?.notes;
     const count = Array.isArray(notes) ? notes.length : null;
     const validApi = apiResult.status === 200 && count === 4
@@ -39,10 +40,10 @@ export async function runAttackChecks(config) {
         && typeof note.title === 'string' && typeof note.content === 'string');
     const failedRequest = '미확인: 요청 실패 또는 시간 초과';
     return [
-      { attackId: 'public_static_note_read', expected: '공개 data.json에서 메모를 읽을 수 없어야 함',
+      { attackId: 'public_static_note_read', expected: '공개 data.json에 메모와 1단계 확인 표시가 없어야 함',
         observed: staticResult.status === 0 ? failedRequest : empty
-          ? 'HTTP 200: 공개 JSON의 메모 0건 확인'
-          : `불일치: HTTP ${staticResult.status}, 빈 메모 JSON을 확인하지 못함` },
+          ? 'HTTP 200: 공개 JSON의 메모 0건과 1단계 확인 표시 제거 확인'
+          : `불일치: HTTP ${staticResult.status}, 메모·1단계 확인 표시 제거를 확인하지 못함` },
       { attackId: 'anonymous_api_note_read', expected: '2단계의 남은 약점: 비로그인 API에서 가상 메모 4건을 읽을 수 있음',
         observed: apiResult.status === 0 ? failedRequest : validApi
           ? 'HTTP 200: 비로그인 API가 메모 4건 반환, 방문자 인증 미구현'
