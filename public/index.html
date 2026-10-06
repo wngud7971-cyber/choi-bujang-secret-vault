@@ -40,7 +40,7 @@
 </head>
 <body>
   <main>
-    <div class="eyebrow">BYTE BACK · 3단계 진짜 로그인을 붙입니다</div>
+    <div class="eyebrow">BYTE BACK · 5단계 자료 요청을 서버 한곳으로 모읍니다</div>
     <h1>가상 자료실</h1>
     <p>아래 기록은 모두 실습을 위해 만든 가상 자료입니다. 메모는 서버를 통해 불러옵니다.</p>
     <section class="auth" aria-labelledby="auth-heading">
@@ -59,7 +59,7 @@
       </div>
       <p id="auth-message" role="status" aria-live="polite"></p>
     </section>
-    <div class="notice">가상 자료만 입력해 주세요. 목록에는 본인 메모가 표시됩니다. 다른 계정의 메모 주소를 아는 사람의 접근을 막는 기능은 4단계에서 추가합니다.</div>
+    <div class="notice">가상 자료만 입력해 주세요. 본인 메모만 조회하고 관리할 수 있습니다.</div>
     <section id="note-editor" class="auth" aria-labelledby="note-heading" hidden>
       <h2 id="note-heading">가상 메모 추가</h2>
       <form id="note-form">
@@ -346,11 +346,18 @@
     });
 
     try {
-      // Public project settings only. Authentication and session handling use the official SDK.
-      client = window.supabase.createClient(
-        'https://tdltpkfewovnxnxhvbkd.supabase.co',
-        'sb_publishable_aY0sI27ZPYLgVeziuEPS6w_PeFRq4QH',
-      );
+      // The SDK stores and refreshes sessions; only our server holds API keys.
+      client = window.supabase.createClient(window.location.origin, 'server-auth-proxy', {
+        auth: { storageKey: 'sb-tdltpkfewovnxnxhvbkd-auth-token', detectSessionInUrl: false },
+        global: { fetch: (url, options) => {
+          const endpoint = new URL(url);
+          if (endpoint.origin !== window.location.origin
+              || !['/auth/v1/token', '/auth/v1/logout', '/auth/v1/user'].includes(endpoint.pathname)) {
+            throw new Error('Unsupported authentication route');
+          }
+          return fetch(`/api/auth/${endpoint.pathname.slice('/auth/v1/'.length)}${endpoint.search}`, options);
+        } },
+      });
       client.auth.onAuthStateChange((event, session) => {
         renderSession(session);
         if (event === 'SIGNED_OUT') showMessage('로그아웃했습니다.');

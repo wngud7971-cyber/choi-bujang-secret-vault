@@ -150,6 +150,7 @@ test('stage 5 checks public-key direct denial and static secrets without recordi
   const originalFetch = globalThis.fetch;
   const stage5 = { ...config, step: 5, repoUrl: 'https://github.com/student-a/aleph-defense',
     originalApiUrl: 'https://training-project.supabase.co/rest/v1/training_notes',
+    allowedRoutes: ['GET /api/notes', 'POST /api/notes'],
     identityProvider: { issuer: 'https://training-project.supabase.co/auth/v1', audience: 'authenticated' } };
   const expectedCommit = 'a'.repeat(40);
   const sentinel = 'DO_NOT_INCLUDE_RESPONSE_BODY';
@@ -172,23 +173,28 @@ test('stage 5 checks public-key direct denial and static secrets without recordi
       if (url.pathname === '/data.json') return Response.json({ notes: [] });
       if (url.pathname === '/aleph.json') return Response.json({
         schema: 'aleph.defense.deployment.v1', step: 5, repoUrl: stage5.repoUrl, commit: expectedCommit,
+        allowedRoutes: stage5.allowedRoutes,
       });
-      if (url.pathname === '/') return new Response(unsafePage ? stage5.sampleMarker : '<html>public page</html>');
+      if (url.pathname === '/') return new Response(unsafePage ? stage5.sampleMarker : '<html>public page</html>',
+        { headers: { 'X-Content-Type-Options': 'nosniff' } });
       return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
     };
-    const checks = await runAttackChecks(stage5, { expectedCommit });
-    assert.equal(checks.length, 18);
+    const publicDataApiKey = ['sb', 'publishable', 'TEST_ONLY_KEY'].join('_');
+    const checks = await runAttackChecks(stage5, { expectedCommit, publicDataApiKey });
+    assert.equal(checks.length, 20);
     assert.equal(directCalls, 1);
     const find = id => checks.find(check => check.attackId === id);
     assert.match(find('deployment_stage5_identity').observed, /커밋과 배포 식별 정보 일치/u);
     assert.match(find('publishable_direct_data_api').observed, /HTTP 401/u);
     assert.match(find('public_browser_secret_scan').observed, /미검출/u);
+    assert.match(find('first_page_security_header').observed, /보안 헤더 확인/u);
+    assert.match(find('deployment_allowed_routes').observed, /일치/u);
     assert.match(find('anonymous_direct_data_api').observed, /미실행/u);
     assert.ok(!JSON.stringify(checks).includes('sb_publishable_'));
     assert.ok(!JSON.stringify(checks).includes(sentinel));
     directAllowed = true;
     unsafePage = true;
-    const failed = await runAttackChecks(stage5, { expectedCommit });
+    const failed = await runAttackChecks(stage5, { expectedCommit, publicDataApiKey });
     for (const id of ['publishable_direct_data_api', 'public_browser_secret_scan']) {
       assert.match(failed.find(check => check.attackId === id).observed, /^불일치/u);
     }
