@@ -25,6 +25,7 @@ async function page(initialSession = null) {
   }
   const calls = [];
   let authCallback;
+  let clientOptions;
   const auth = {
     onAuthStateChange(callback) { authCallback = callback; },
     async getSession() { return { data: { session: initialSession }, error: null }; },
@@ -33,17 +34,35 @@ async function page(initialSession = null) {
   const context = vm.createContext({
     AbortController,
     document: { querySelector: name => elements.get(name), createElement: makeElement },
-    window: { supabase: { createClient: () => ({ auth }) }, confirm: () => true },
+    window: { location: { origin: 'https://student-defense.vercel.app' },
+      supabase: { createClient: (url, key, options) => {
+        assert.equal(url, 'https://student-defense.vercel.app');
+        assert.equal(key, 'server-auth-proxy');
+        clientOptions = options;
+        return { auth };
+      } }, confirm: () => true }, URL,
     fetch: (url, options) => new Promise(resolve => { calls.push({ url, options, resolve }); }),
   });
   await vm.runInContext('(async () => {' + source + '\n})()', context);
   return {
-    el: id => elements.get('#' + id), calls,
+    el: id => elements.get('#' + id), calls, clientOptions,
     change: (event, session) => authCallback(event, session),
   };
 }
 
 test('protected notes UI follows login state and discards late responses', async t => {
+  await t.test('Auth transport uses only the server gateway and no real project key is embedded', async () => {
+    assert.ok(!/sb_(?:publishable|secret)_[A-Za-z0-9_-]+/u.test(html));
+    assert.ok(!/eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/u.test(html));
+    const current = await page();
+    const transport = current.clientOptions.global.fetch;
+    transport('https://student-defense.vercel.app/auth/v1/token?grant_type=password', { method: 'POST' });
+    assert.equal(current.calls[0].url, '/api/auth/token?grant_type=password');
+    transport('https://student-defense.vercel.app/auth/v1/logout?scope=local', { method: 'POST' });
+    assert.equal(current.calls[1].url, '/api/auth/logout?scope=local');
+    assert.throws(() => transport('https://student-defense.vercel.app/rest/v1/training_notes', {}));
+    assert.throws(() => transport('https://another-project.supabase.co/auth/v1/token', {}));
+  });
   await t.test('anonymous page does not request data; a saved login sends only its access token', async () => {
     const anonymous = await page();
     assert.equal(anonymous.calls.length, 0);

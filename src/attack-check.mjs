@@ -2,9 +2,8 @@
 // Never return tokens, private keys, real names, or note bodies.
 import { randomUUID } from 'node:crypto';
 import { generateKeyPair, SignJWT } from 'jose';
-import { readFile } from 'node:fs/promises';
 
-export async function runAttackChecks(config, { expectedCommit } = {}) {
+export async function runAttackChecks(config, { expectedCommit, publicDataApiKey = process.env.SUPABASE_PUBLISHABLE_KEY } = {}) {
   if (![1, 2, 3, 4, 5].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
@@ -70,10 +69,11 @@ export async function runAttackChecks(config, { expectedCommit } = {}) {
           || original.pathname !== '/rest/v1/training_notes') {
         throw new Error('원본 자료 API 주소는 학습 테이블의 쿼리 없는 HTTPS 경로여야 합니다.');
       }
-      // Read only the browser's public key; never load user tokens or server keys.
-      const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
-      const publicKey = html.match(/\bsb_publishable_[A-Za-z0-9_-]+/u)?.[0];
-      let direct = '미실행: 브라우저의 publishable 키를 찾지 못함';
+      // Optional public key exists only in server-side environment or test memory.
+      // Never recover removed keys from source/history or read a server secret.
+      const publicKey = typeof publicDataApiKey === 'string'
+        && /^sb_publishable_[A-Za-z0-9_-]+$/u.test(publicDataApiKey) ? publicDataApiKey : null;
+      let direct = '미실행: 화면에서 공개 키를 제거했고 서버 점검용 공개 키는 설정하지 않음';
       if (publicKey) {
         try {
           const response = await fetch(original, {
@@ -94,16 +94,31 @@ export async function runAttackChecks(config, { expectedCommit } = {}) {
           redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(10000),
         });
         const page = await response.text();
-        const forbidden = /-----BEGIN [A-Z ]*PRIVATE KEY-----|\bsb_secret_[A-Za-z0-9_-]{12,}|\bsk-[A-Za-z0-9_-]{20,}|\beyJ[A-Za-z0-9_-]{12,}\.eyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{8,}/u;
+        const forbidden = /-----BEGIN [A-Z ]*PRIVATE KEY-----|\bsb_(?:secret|publishable)_[A-Za-z0-9_-]{12,}|\bsk-[A-Za-z0-9_-]{20,}|\beyJ[A-Za-z0-9_-]{12,}\.eyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{8,}/u;
         stage5Checks.push({ attackId: 'public_browser_secret_scan',
-          expected: '배포된 HTML과 인라인 브라우저 코드에 서버 키·개인키·JWT·시드 표식이 없어야 함',
+          expected: '배포된 HTML과 인라인 코드에 공개 키·서버 키·개인키·JWT·시드 표식이 없어야 함',
           observed: response.status === 200 && !forbidden.test(page) && !page.includes(config.sampleMarker)
-            ? 'HTTP 200: 배포 HTML·인라인 코드에서 서버 키·개인키·JWT·시드 표식 패턴 미검출'
+            ? 'HTTP 200: 배포 HTML·인라인 코드에서 공개 키·서버 키·개인키·JWT·시드 표식 패턴 미검출'
             : `불일치: HTTP ${response.status}, 공개 HTML 점검 실패` });
+        stage5Checks.push({ attackId: 'first_page_security_header',
+          expected: '첫 화면 응답에 X-Content-Type-Options: nosniff 또는 Content-Security-Policy가 있어야 함',
+          observed: response.status === 200 && (response.headers.get('x-content-type-options') === 'nosniff'
+              || Boolean(response.headers.get('content-security-policy')))
+            ? 'HTTP 200: 첫 화면 보안 헤더 확인' : `불일치: HTTP ${response.status}, 첫 화면 보안 헤더 미확인` });
       } catch {
         stage5Checks.push({ attackId: 'public_browser_secret_scan',
-          expected: '배포된 HTML과 인라인 브라우저 코드에 서버 키·개인키·JWT·시드 표식이 없어야 함', observed: failed });
+          expected: '배포된 HTML과 인라인 코드에 공개 키·서버 키·개인키·JWT·시드 표식이 없어야 함', observed: failed });
+        stage5Checks.push({ attackId: 'first_page_security_header',
+          expected: '첫 화면 응답에 보안 헤더가 있어야 함', observed: failed });
       }
+      stage5Checks.push({ attackId: 'deployment_allowed_routes',
+        expected: '배포 aleph.json에 현재 허용 메모 경로가 기록돼 있어야 함',
+        observed: results[7].status === 0 ? failed
+          : results[7].status === 200 && Array.isArray(results[7].data?.allowedRoutes)
+            && results[7].data.allowedRoutes.length > 0
+            && JSON.stringify(results[7].data.allowedRoutes) === JSON.stringify(config.allowedRoutes)
+            ? 'HTTP 200: 허용 경로 설정과 배포 JSON 일치'
+            : `불일치: HTTP ${results[7].status}, 배포 허용 경로 미확인` });
     }
     return [
       { attackId: 'public_static_note_read', expected: '공개 JSON에 메모와 1단계 확인 표시가 없어야 함',

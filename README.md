@@ -1,6 +1,8 @@
 # BYTE BACK · 5단계 저장점
 
-브라우저 메모 읽기·추가·수정·삭제는 기존 Vercel 서버 함수만 사용합니다. Supabase Auth 로그인·로그아웃, 서버의 토큰 검증·소유자 검사, 서버 전용 환경변수는 그대로 유지했습니다. 제작 1의 브라우저 직접 자료 호출은 없어서 화면 코드는 수정하지 않았습니다.
+브라우저 메모 읽기·추가·수정·삭제는 기존 Vercel 서버 함수만 사용합니다. 서버의 토큰 검증·소유자 검사·서버 전용 환경변수는 유지했습니다. 제작 1의 브라우저 직접 자료 호출은 없었습니다. 이후 100점 추가 조건을 위해 화면의 실제 Supabase 공개 키를 제거하고 인증 요청도 서버 함수로 보냅니다.
+
+100점 추가 조건: 배포 `aleph.json`에 기존 메모 `allowedRoutes`와 `originalApiUrl`을 포함합니다. `vercel.json`에 사용자가 작성한 전체 경로의 `X-Content-Type-Options: nosniff`를 보존했습니다. 화면에는 실제 프로젝트 공개 키나 서버 키를 두지 않습니다. 기존 공식 SDK의 비밀번호 로그인·세션 저장·갱신·로그아웃은 유지하고 전송만 `/api/auth/:action`으로 변경했습니다. 초기화의 `server-auth-proxy`는 자격 증명이 아닌 SDK용 자리표시자이며 Supabase로 전달하지 않습니다. `/api/auth/:action`은 비밀번호 로그인·토큰 갱신·본인 정보·현재 세션 로그아웃만 허용하며 관리자 기능·회원 가입·자료 API·임의 주소 중계는 거부합니다. 서버는 기존 `SUPABASE_URL`·`SUPABASE_SECRET_KEY`를 사용하고 오류 원문·키·비밀번호를 응답이나 로그로 내보내지 않습니다. 정상 세션 토큰은 기존 SDK의 세션 처리에만 사용합니다. DB 권한 변경이나 추가 환경변수 설정은 필요하지 않습니다.
 
 사용자가 학습 DB에서 `docs/STEP5_DATABASE.sql`을 실행한 결과 표를 제공했습니다. 적용 후 `anon`·`authenticated`의 테이블 CRUD·추가 권한·열 접근은 모두 false, PUBLIC 권한은 false, RLS는 true이며 `service_role`의 CRUD는 모두 true로 유지됩니다. 이 SQL은 `public.training_notes`만 대상으로 하며 메모·소유자·기존 정책·다른 테이블·서버 역할의 개별 권한을 보존합니다. 검사 실패 시 전체 트랜잭션이 취소됩니다.
 
@@ -8,11 +10,11 @@
 
 `aleph.config.json`은 5단계이며 `originalApiUrl`에 학습용 `training_notes`의 쿼리 없는 원본 HTTPS 경로를 기록했습니다. 기존 저장소·배포 주소·발급자·대상·JWKS·허용 경로·운영 측 `judgeIssuer`는 유지합니다. 빌드와 배포 식별 JSON은 1~5단계를 지원하며 공개 메모 JSON은 빈 배열입니다. 판정기 규칙은 실제 기존 구현인 `starter.deny`만 유지합니다.
 
-다시 실행: `node scripts/build-public.mjs --local`. 로컬 확인: `node --test test/notes.test.mjs test/auth-ui.test.mjs test/r5.test.mjs test/package-starter.test.mjs test/build-public.test.mjs`. 가상 인증·메모로 기존 정상·거부 동작을 확인하며 실제 DB 권한이나 심판 판정으로 대신하지 않습니다. 권한 확인 SQL과 전후 결과 설명은 `docs/STEP5_DATABASE.sql`에 있습니다. 4단계 SQL은 authenticated 직접 CRUD 권한을 다시 부여하므로 5단계 적용 후 재실행하지 않습니다.
+다시 실행: `node scripts/build-public.mjs --local`. 로컬 확인: `node --test test/notes.test.mjs test/auth-ui.test.mjs test/auth-gateway.test.mjs test/r5.test.mjs test/package-starter.test.mjs test/build-public.test.mjs` (34개 통과). 실제 SDK와 가상 인증 응답으로 로그인·갱신·로그아웃·인증 중계 제한을 검사합니다. 가상 인증·메모 시험은 실제 DB 권한이나 심판 판정을 대신하지 않습니다. 권한 확인 SQL과 전후 결과 설명은 `docs/STEP5_DATABASE.sql`에 있습니다. 4단계 SQL은 authenticated 직접 CRUD 권한을 다시 부여하므로 5단계 적용 후 재실행하지 않습니다.
 
-저장점 커밋 후 `npm run bundle`로 `artifacts/submission.json`을 생성합니다. 자기 점검은 실제 배포의 공개 JSON, 무로그인 다섯 경로, 가상 서명 거부, 배포 단계·저장점 커밋 일치, publishable 키의 원본 직접 조회, 배포 HTML·인라인 코드의 비밀값·시드 표식 패턴을 확인합니다. 미실행 계정·anon 키 검사는 미실행으로 남깁니다. 응답 본문·메모·토큰·키는 제출 묶음에서 제외하고 `bundle-notes.json`·`artifacts/submission.json`은 커밋하지 않습니다.
+저장점 커밋 후 `npm run bundle`로 `artifacts/submission.json`을 생성합니다 (npm이 없는 이 실행 환경에서는 동일한 `node scripts/bundle.mjs` 사용). 자기 점검은 실제 배포의 공개 JSON, 무로그인 다섯 경로, 가상 서명 거부, 배포 단계·저장점 커밋 일치, 배포 HTML·인라인 코드의 공개 키·비밀값·시드 표식 패턴, 첫 화면 보안 헤더, 배포 허용 경로를 확인합니다. 화면에서 공개 키를 제거했으므로 직접 원본 조회 재시험은 서버 점검 환경의 선택적 `SUPABASE_PUBLISHABLE_KEY`가 없으면 미실행으로 남깁니다. 이 점검용 설정은 앱의 정상 동작에 필요하지 않고 키는 소스·출력·묶음에 넣지 않습니다. 미실행 계정·anon 키 검사는 미실행으로 남깁니다. 응답 본문·메모·토큰·키는 제출 묶음에서 제외하고 `bundle-notes.json`·`artifacts/submission.json`은 커밋하지 않습니다.
 
-사용자가 5단계 파일을 GitHub 웹에서 업로드하고, 배포 식별 JSON의 단계 5·공개 JSON의 빈 메모 배열·화면 기능 확인을 완료했다고 알려 주었습니다. 이어 제공한 심판 결과는 50/100점이며 원본 조회 항목에 `S05_ORIGINAL_URL_MISSING`이 기록됐고 직접 수정·정적 키 검색 항목은 격파로 표시됐습니다. 원인은 설정의 `originalApiUrl`이 배포 `aleph.json` 생성 결과에 포함되지 않았던 누락입니다. 생성 도구에 해당 필드를 추가하고 실제 빌드 출력으로 이를 검사하는 시험을 보강했습니다. 이 수정의 업로드·재배포·재판정은 아직 미확인입니다. 업로드·재배포 후 `/aleph.json`에서 단계 5와 쿼리 없는 `originalApiUrl`을 확인하고 같은 Vercel 주소로 다시 제출합니다.
+사용자가 5단계 파일을 GitHub 웹에서 업로드하고, 배포 식별 JSON의 단계 5·공개 JSON의 빈 메모 배열·화면 기능 확인을 완료했다고 알려 주었습니다. 이어 제공한 심판 결과는 50/100점이며 원본 조회 항목에 `S05_ORIGINAL_URL_MISSING`이 기록됐고 직접 수정·정적 키 검색 항목은 격파로 표시됐습니다. 원인은 설정의 `originalApiUrl`이 배포 `aleph.json` 생성 결과에 포함되지 않았던 누락입니다. 생성 도구에 해당 필드를 추가하고 실제 빌드 출력으로 이를 검사하는 시험을 보강했습니다. 원본 주소 수정 및 100점 추가 조건 변경의 업로드·재배포·재판정은 아직 미확인입니다. 업로드·재배포 후 `/aleph.json`의 단계 5·원본 주소·허용 경로, 첫 화면 보안 헤더와 키 제거, A/B 로그인·본인 CRUD·로그아웃·무로그인 거부를 확인하고 같은 Vercel 주소로 다시 제출합니다. GitHub 웹 업로드의 원격 커밋은 로컬 커밋과 다를 수 있으므로 커밋 일치 점검을 자동 통과로 기록하지 않습니다.
 
 ## 4단계 저장점 (이전 기록)
 
