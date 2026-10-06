@@ -49,14 +49,17 @@ test('stage 3 authenticates before querying notes and keeps server secrets priva
     if (url.href === config.judgeIssuer + '/.well-known/jwks.json') return Response.json({ keys: [judgeJwk] });
     assert.equal(url.origin, new URL(config.identityProvider.issuer).origin);
     assert.equal(url.pathname, '/rest/v1/training_notes');
-    assert.equal(url.searchParams.get('select'), 'id,title,content');
-    assert.equal(url.searchParams.get('order'), 'position.asc,id.asc');
+    assert.equal(url.searchParams.get('select'), ['POST', 'DELETE'].includes(options.method) ? 'id' : 'id,title,content');
+    if (options.method === 'GET' && !url.searchParams.has('id')) {
+      assert.ok(url.searchParams.get('owner_id')?.startsWith('eq.'));
+      assert.equal(url.searchParams.get('order'), 'created_at.asc,id.asc');
+    }
     assert.equal(options.headers.apikey, testKey);
     assert.equal(options.headers.Authorization, undefined);
     assert.equal(options.headers.Cookie, undefined);
     assert.equal(options.redirect, 'error');
     databaseCalls++;
-    return databaseResponse();
+    return databaseResponse(url, options);
   };
   const call = async (authorization, method = 'GET', extra = {}) => {
     const res = responseRecorder();
@@ -106,16 +109,94 @@ test('stage 3 authenticates before querying notes and keeps server secrets priva
         const res = await call('Bearer ' + token);
         assert.equal(res.statusCode, 200);
         assert.equal(databaseCalls, before + 1);
-        assert.deepEqual(res.body.notes, rows.map(({ id, title, content }) => ({ id, title, content })));
+        assert.deepEqual(res.body, rows.map(({ id, title, content }) => ({ id, title, body: content })));
         assert.equal(JSON.stringify(res.body).includes(testKey), false);
       }
     });
 
-    await t.test('authenticated POST is unsupported without contacting the database', async () => {
+    await t.test('unsupported route methods are rejected without contacting the database', async () => {
       const before = databaseCalls;
-      const res = await call('Bearer ' + validToken, 'POST');
+      const res = await call('Bearer ' + validToken, 'PUT');
       assert.equal(res.statusCode, 405);
-      assert.equal(res.headers.get('allow'), 'GET');
+      assert.equal(res.headers.get('allow'), 'GET, POST');
+      assert.equal(databaseCalls, before);
+    });
+
+    await t.test('CRUD uses verified owner, exact bodies and paths, personal lists, and 404 after deletion', async () => {
+      const userB = '33333333-3333-4333-8333-333333333333';
+      const tokenB = await studentToken({ sub: userB });
+      const noteId = '44444444-4444-4444-8444-444444444444';
+      const rows = new Map([['legacy', { id: 'legacy', owner_id: null, title: 'Legacy fixture', content: 'Synthetic content' }]]);
+      databaseResponse = async (url, options) => {
+        const id = url.searchParams.get('id')?.slice(3);
+        const owner = url.searchParams.get('owner_id')?.slice(3);
+        if (options.method === 'POST') {
+          const row = JSON.parse(options.body);
+          assert.equal(row.owner_id, userId);
+          assert.deepEqual(Object.keys(row).sort(), ['content', 'id', 'owner_id', 'position', 'title']);
+          assert.equal(row.position, 0);
+          if (rows.has(row.id)) return Response.json({ detail: testKey }, { status: 409 });
+          rows.set(row.id, row);
+          return Response.json([{ id: row.id }], { status: 201 });
+        }
+        if (options.method === 'PATCH') {
+          assert.equal(owner, undefined, 'ownership checks on individual operations start in stage 4');
+          const changes = JSON.parse(options.body);
+          assert.deepEqual(Object.keys(changes).sort(), ['content', 'title']);
+          if (!rows.has(id)) return Response.json([]);
+          Object.assign(rows.get(id), changes);
+          return Response.json([rows.get(id)]);
+        }
+        if (options.method === 'DELETE') {
+          assert.equal(owner, undefined);
+          if (!rows.has(id)) return Response.json([]);
+          rows.delete(id);
+          return Response.json([{ id }]);
+        }
+        return Response.json(id ? (rows.has(id) ? [rows.get(id)] : [])
+          : [...rows.values()].filter(row => row.owner_id === owner));
+      };
+      const mutation = (method, body, url = '/api/notes', token = validToken) => call('Bearer ' + token, method, {
+        url, body, headers: { 'content-type': 'application/json' },
+      });
+      assert.deepEqual((await call('Bearer ' + validToken)).body, []);
+      const added = await mutation('POST', { id: noteId, title: 'Test A', body: 'Synthetic content',
+        owner_id: userB, userId: userB, role: 'admin' });
+      assert.equal(added.statusCode, 201);
+      assert.deepEqual(added.body, { id: noteId });
+      assert.equal(rows.get(noteId).owner_id, userId);
+      const generated = await mutation('POST', { title: 'Generated ID', body: 'Synthetic content' });
+      assert.equal(generated.statusCode, 201);
+      assert.match(generated.body.id, /^[0-9a-f-]{36}$/u);
+      assert.equal((await mutation('POST', { id: noteId, title: 'Duplicate', body: 'Synthetic content' })).statusCode, 409);
+      const single = await call('Bearer ' + validToken, 'GET', { url: '/api/notes/' + noteId });
+      assert.deepEqual(single.body, { id: noteId, title: 'Test A', body: 'Synthetic content' });
+      const updated = await mutation('PUT', { title: 'Updated', body: 'New synthetic content', owner_id: userB }, '/api/notes/' + noteId);
+      assert.deepEqual(updated.body, { id: noteId, title: 'Updated', body: 'New synthetic content' });
+      const ownList = await call('Bearer ' + validToken, 'GET', { url: '/api/notes?userId=' + userB, query: { userId: userB } });
+      assert.equal(ownList.body.length, 2);
+      assert.ok(!ownList.body.some(row => row.id === 'legacy'));
+      assert.deepEqual((await call('Bearer ' + tokenB)).body, []);
+      // Required stage 3 limitation: B can access A's known individual URL.
+      assert.equal((await call('Bearer ' + tokenB, 'GET', { url: '/api/notes/' + noteId })).statusCode, 200);
+      assert.equal((await mutation('PUT', { title: 'B edited A', body: 'Synthetic content' }, '/api/notes/' + noteId, tokenB)).statusCode, 200);
+      assert.equal(rows.get(noteId).owner_id, userId);
+      assert.equal((await call('Bearer ' + tokenB, 'DELETE', { url: '/api/notes/' + noteId })).statusCode, 200);
+      assert.equal((await call('Bearer ' + validToken, 'GET', { url: '/api/notes/' + noteId })).statusCode, 404);
+      assert.equal((await mutation('PUT', { title: 'Missing', body: 'Synthetic content' }, '/api/notes/' + noteId)).statusCode, 404);
+      assert.equal((await call('Bearer ' + validToken, 'DELETE', { url: '/api/notes/' + noteId })).statusCode, 404);
+      assert.ok(rows.has('legacy'), 'legacy DB notes are preserved');
+      const before = databaseCalls;
+      assert.equal((await mutation('POST', { id: 'bad-id', title: 'Test', body: 'Synthetic content' })).statusCode, 400);
+      assert.equal((await mutation('POST', { title: '', body: 'Synthetic content' })).statusCode, 400);
+      assert.equal((await mutation('POST', { title: 'Test', body: '' })).statusCode, 400);
+      assert.equal((await mutation('POST', '{invalid-json')).statusCode, 400);
+      assert.equal((await call('Bearer ' + validToken, 'POST', { body: {} })).statusCode, 415);
+      assert.equal((await call('Bearer ' + validToken, 'GET', { url: '/api/notes/not-a-uuid' })).statusCode, 400);
+      assert.equal((await call('Bearer ' + validToken, 'GET', { url: '/api/notes/extra/path' })).statusCode, 404);
+      for (const method of ['GET', 'PUT', 'DELETE']) {
+        assert.equal((await call(undefined, method, { url: '/api/notes/' + noteId })).statusCode, 401);
+      }
       assert.equal(databaseCalls, before);
     });
 

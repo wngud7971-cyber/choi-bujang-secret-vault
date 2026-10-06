@@ -1,12 +1,16 @@
-# BYTE BACK · 3단계 자료실 (제작 2까지)
+# BYTE BACK · 3단계 자료실 (제작 3 구현)
 
 Supabase Auth 이메일·비밀번호 로그인과 로그아웃 화면을 붙였고, `api/notes.js`는 기존 `src/verify-login.mjs`를 변경 없이 사용해 요청 토큰을 검증합니다. 토큰이 없거나 유효하지 않으면 메모 없이 HTTP 401로 거부하며 브라우저의 `userId`·`role`은 신원으로 사용하지 않습니다. 로그인 뒤에는 Authorization 헤더로 SDK의 접근 토큰을 보내 자료를 조회합니다. 로그아웃하면 화면의 메모를 지우고 이전 요청의 늦은 응답도 폐기합니다.
 
 `aleph.config.json`은 3단계이며 `identityProvider`에 Supabase 발급자·대상·JWKS 공개 주소를 기록했습니다. `judgeIssuer`는 기존 값을 유지합니다. 공개 정적 JSON은 계속 빈 메모 배열만 포함하고, 빌드는 3단계를 지원합니다. 화면에는 공개용 publishable key만 사용하며 서버 전용 키는 기존 Vercel 환경변수에서 읽습니다.
 
-아직 메모 추가·수정·삭제와 소유자 검사는 구현하지 않았습니다. 현재 API는 로그인한 요청의 목록 GET만 지원합니다. 제작 3에서 실제 CRUD 경로를 `allowedRoutes`에 기록하고, 소유자별 접근 제한은 4단계에서 진행합니다. 지금 저장점이나 제출 묶음을 생성하면 아직 완료되지 않은 제작 3을 완료한 것으로 취급하지 않습니다.
+로그인한 계정의 가상 메모 추가·수정·삭제 화면과 서버 API를 구현했습니다. `POST /api/notes`는 `{id,title,body}`를 받고 ID가 없으면 UUID를 생성해 HTTP 201 `{id}`를 반환합니다. 서버가 검증한 사용자 ID만 `owner_id`로 저장하며 브라우저의 소유자 정보는 무시합니다. `GET /api/notes`는 본인 메모 배열을 반환합니다. `GET /api/notes/:id`와 `PUT /api/notes/:id`는 `{id,title,body}`, `DELETE /api/notes/:id`는 `{id}`를 반환하며 삭제 이후의 단건 조회는 404입니다. DB의 기존 `content` 열은 API의 `body`로 변환하고 새 메모의 필수 `position`은 0으로 저장합니다. 실제 다섯 경로를 `allowedRoutes`에 기록했습니다.
 
-실행 확인: `node scripts/build-public.mjs --local`. 로컬 시험: `node --test test/notes.test.mjs test/auth-ui.test.mjs test/r5.test.mjs test/package-starter.test.mjs test/build-public.test.mjs`. 시험 토큰과 공개키는 시험 중 생성하며 실제 계정·서버·심판을 사용하지 않습니다. 재배포 뒤 시크릿 창에서 무로그인 자료 조회 거부와 정상 A 계정 조회를 별도로 확인해야 합니다. 제작 2의 실제 재배포·A 계정 조회·심판 판정은 아직 미확인입니다.
+Supabase SQL Editor에서 `docs/STEP3_DATABASE.sql`을 실행해 서버에 읽기·추가·수정·삭제 권한을 부여해야 합니다. 브라우저의 테이블 직접 접근은 계속 차단하며 기존 DB 메모는 삭제·재배정하지 않습니다. 기존의 소유자 없는 네 메모는 DB에 보존되지만 개인 목록에는 포함되지 않습니다. 새 A 계정의 목록이 비어 있는 것은 정상이며 직접 만든 가상 메모부터 표시됩니다.
+
+3단계에서는 소유자 검사를 목록에만 적용합니다. 로그인한 B가 A 메모의 ID를 알면 단건 조회·수정·삭제할 수 있다는 허점을 유지했으며, 로컬 가상 시험에서도 이를 확인합니다. 실제 B 계정 접근 시험은 미실행이고 4단계에서 기록·차단합니다. 서버는 무로그인 요청을 모든 메서드에서 자료 없이 401로 거부합니다. DB 쓰기 권한 적용·실제 CRUD 배포·실제 A 계정의 CRUD·3단계 저장점·제출 묶음·심판 판정은 아직 미실행입니다.
+
+실행 확인: `node scripts/build-public.mjs --local`. 로컬 시험: `node --test test/notes.test.mjs test/auth-ui.test.mjs test/r5.test.mjs test/package-starter.test.mjs test/build-public.test.mjs`. 시험 토큰과 공개키는 시험 중 생성하며 실제 계정·서버·심판을 사용하지 않습니다. 사용자 화면으로 제작 2의 로그인 후 기존 메모 표시를 확인했습니다. 제작 3 재배포 뒤 시크릿 창의 무로그인 거부와 실제 A 계정의 메모 추가·수정·삭제를 별도로 확인해야 합니다.
 
 ## 2단계 기록 (이전 구현)
 
