@@ -99,3 +99,34 @@ test('stage 2 checks static removal, public API weakness and POST rejection with
     globalThis.fetch = originalFetch;
   }
 });
+
+test('stage 3 records actual anonymous rejection probes separately from unexecuted issuer and account checks', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  try {
+    globalThis.fetch = async (url, init) => {
+      calls.push({ path: url.pathname, method: init.method, hasAuthorization: Boolean(init.headers?.Authorization) });
+      return url.pathname === '/data.json' ? Response.json({ notes: [] })
+        : Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
+    };
+    const checks = await runAttackChecks({ ...config, step: 3,
+      identityProvider: { issuer: 'https://training-project.supabase.co/auth/v1', audience: 'authenticated' } });
+    assert.equal(calls.length, 7);
+    assert.equal(checks.length, 10);
+    assert.match(checks[0].observed, /HTTP 200/u);
+    assert.ok(checks.slice(1, 7).every(check => check.observed.startsWith('HTTP 401')));
+    assert.ok(checks.slice(7).every(check => check.observed.includes('미실행')));
+    assert.equal(calls.filter(call => call.hasAuthorization).length, 1);
+    assert.deepEqual(calls.filter(call => call.path !== '/data.json').map(call => call.method),
+      ['GET', 'POST', 'GET', 'PUT', 'DELETE', 'GET']);
+    assert.ok(!JSON.stringify(checks).includes('Bearer '));
+    assert.ok(!JSON.stringify(checks).includes('Synthetic self-check'));
+    globalThis.fetch = async () => { throw new Error('DO_NOT_INCLUDE_RESPONSE_BODY'); };
+    const failures = await runAttackChecks({ ...config, step: 3,
+      identityProvider: { issuer: 'https://training-project.supabase.co/auth/v1', audience: 'authenticated' } });
+    assert.ok(failures.slice(0, 7).every(check => check.observed.startsWith('미확인')));
+    assert.ok(!JSON.stringify(failures).includes('DO_NOT_INCLUDE_RESPONSE_BODY'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

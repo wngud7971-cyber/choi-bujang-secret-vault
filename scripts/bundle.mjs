@@ -98,7 +98,8 @@ try {
   mkdirSync(join(root, 'artifacts'), { recursive: true });
   const output = join(root, 'artifacts', 'submission.json');
   writeFileSync(output, `${JSON.stringify(bundle, null, 2)}\n`, { encoding: 'utf8', flag: 'w' });
-  process.stdout.write(`제출 묶음 JSON 생성: ${output}\n단계 ${bundle.step} · 커밋 ${commit.slice(0, 12)} · 바뀐 파일 ${changedFiles.length}개 · 규칙 ${policyRules.length}개 · 직접 점검 ${attackAttempts.length}개\n`);
+  const notExecuted = attackAttempts.filter(attempt => /^(?:미실행|도구 시험 미실행)/u.test(attempt.observed)).length;
+  process.stdout.write(`제출 묶음 JSON 생성: ${output}\n단계 ${bundle.step} · 커밋 ${commit.slice(0, 12)} · 바뀐 파일 ${changedFiles.length}개 · 규칙 ${policyRules.length}개 · 요청 점검 ${attackAttempts.length - notExecuted}개 · 미실행 ${notExecuted}개\n`);
 } catch (error) {
   process.stderr.write(`제출 묶음 생성 중 첫 오류: ${error.message}\n`);
   process.exitCode = 1;
