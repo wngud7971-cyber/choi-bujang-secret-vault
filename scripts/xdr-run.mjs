@@ -55,6 +55,7 @@ export async function runXdr({ root, moduleKey, writeError = (line) => console.e
   const outDir = join(root, 'xdr', moduleKey);
   await mkdir(outDir, { recursive: true });
   await writeFile(join(outDir, 'result.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+  if (typeof loaded.afterRun === 'function') await loaded.afterRun({ root, alerts: fixture.alerts, decisions });
   return result;
 }
 

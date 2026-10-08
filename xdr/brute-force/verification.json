@@ -1,0 +1,15 @@
+{
+  "schema": "aleph.xdr.verification.v1",
+  "inputAlerts": 28,
+  "clearAttacks": 10,
+  "clearAttacksDenied": 10,
+  "normalEvents": 9,
+  "normalBlocked": 0,
+  "normalDenied": 0,
+  "ambiguousBlocked": 0,
+  "jevConfirmedBlocks": 0,
+  "normalPassedToExistingPolicy": 9,
+  "expiresAfterSeconds": 900,
+  "mode": "fixture-replay",
+  "connection": "src/ztna.mjs -> src/decider.mjs -> src/xdr-policy.mjs"
+}
