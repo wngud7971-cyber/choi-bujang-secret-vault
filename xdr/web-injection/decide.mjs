@@ -46,7 +46,9 @@ export function createDecider({ jev = askJev, timeoutMs = 1500 } = {}) {
       ]);
       if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) throw new Error('jev_invalid_response');
       usage.responsesReceived += 1;
-      return result(confidence, reason);
+      // Jev supplies review confidence, not authority to change an ambiguous
+      // event into a source block or silently downgrade it to a record.
+      return { action: 'alert', confidence, reason };
     } catch {
       usage.fallbackAlerts += 1;
       return result(0.5, reason);

@@ -2,12 +2,12 @@
   "schema": "aleph.xdr.verification.v1",
   "moduleKey": "web-injection",
   "inputAlerts": 26,
-  "blockCandidates": 7,
-  "installedRules": 7,
-  "clearAttacks": 7,
-  "clearAttacksDenied": 7,
-  "clearWebRulesMatched": 7,
-  "webRuleDenials": 5,
+  "blockCandidates": 8,
+  "installedRules": 8,
+  "clearAttacks": 8,
+  "clearAttacksDenied": 8,
+  "clearWebRulesMatched": 8,
+  "webRuleDenials": 6,
   "existingRuleDenials": 2,
   "normalEvents": 9,
   "normalBlocked": 0,
@@ -19,8 +19,8 @@
   "mode": "fixture-replay",
   "connection": "src/ztna.mjs -> src/decider.mjs -> src/xdr-policy.mjs",
   "jev": {
-    "reviewsRequested": 10,
+    "reviewsRequested": 9,
     "responsesReceived": 9,
-    "fallbackAlerts": 1
+    "fallbackAlerts": 0
   }
 }

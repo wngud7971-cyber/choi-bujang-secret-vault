@@ -29,9 +29,9 @@ async function removeTestDirectory(dir) {
   await rm(target, { recursive: true, force: true });
 }
 
-test('거부 규칙 7개는 반복된 패턴·경보 번호·15분 만료 근거를 갖습니다', async () => {
+test('거부 규칙 8개는 반복된 패턴·경보 번호·15분 만료 근거를 갖습니다', async () => {
   const doc = await makeDenyRules(fixture.alerts, await decisionsFor(fixture.alerts));
-  assert.equal(doc.rules.length, 7);
+  assert.equal(doc.rules.length, 8);
   for (const rule of doc.rules) {
     assert.equal(rule.ruleId, WEB_RULE_ID);
     assert.equal(Date.parse(rule.expiresAt) - Date.parse(rule.startsAt), TTL_MS);
@@ -43,15 +43,16 @@ test('거부 규칙 7개는 반복된 패턴·경보 번호·15분 만료 근거
     assert.equal(checkSource(rule.sourceIp, rule.expiresAt, { ...doc, rules: [rule] }), null);
   }
   for (const alert of fixture.alerts.slice(8)) assert.equal(checkSource(alert.data.srcip, alert.timestamp, doc), null);
-  assert.equal(checkSource(fixture.alerts[5].data.srcip, fixture.alerts[5].timestamp, doc), null);
+  assert.ok(checkSource(fixture.alerts[5].data.srcip, fixture.alerts[5].timestamp, doc));
 });
 
-test('Jev 확신도가 높아도 애매한 시도·수업 단어·명령 구분자만으로 규칙을 만들지 않습니다', async () => {
+test('Jev 확신도가 높아도 애매한 시도·수업 단어는 알림이며 거부 규칙에서 제외됩니다', async () => {
   const decisions = await decisionsFor(fixture.alerts, async () => 0.99);
-  assert.equal(decisions.filter(item => item.action === 'block').length, 17);
+  assert.equal(decisions.filter(item => item.action === 'block').length, 8);
+  assert.ok(decisions.slice(8, 17).every(item => item.action === 'alert'));
   const doc = await makeDenyRules(fixture.alerts, decisions);
-  assert.equal(doc.rules.length, 7);
-  assert.ok(doc.rules.every(rule => !rule.alertIds.includes('wi-06')));
+  assert.equal(doc.rules.length, 8);
+  assert.ok(doc.rules.some(rule => rule.alertIds.includes('wi-06') && rule.patternIds.includes('command-injection')));
   const forgedNormal = fixture.alerts.slice(17).map(alert => ({ alertId: alert.id,
     action: 'block', confidence: 1, reason: '해당 없음' }));
   assert.equal((await makeDenyRules(fixture.alerts, forgedNormal)).rules.length, 0);
@@ -165,14 +166,14 @@ test('실행기 후처리는 두 번 재현해도 정상 요청을 허용하고 
     const first = await runXdr({ root: dir, moduleKey: 'web-injection' });
     const beforeRules = await readFile(join(dir, 'xdr', 'web-injection', 'deny-rules.json'));
     const second = await runXdr({ root: dir, moduleKey: 'web-injection' });
-    assert.deepEqual(first.counts, { block: 7, alert: 10, record: 9 });
+    assert.deepEqual(first.counts, { block: 8, alert: 9, record: 9 });
     assert.deepEqual(first, second);
     assert.deepEqual(await readFile(join(dir, 'xdr', 'web-injection', 'deny-rules.json')), beforeRules);
     assert.deepEqual(await readFile(join(dir, 'xdr', 'fixtures', 'web-injection.json')), beforeFixture);
     assert.deepEqual(await readFile(join(dir, 'xdr', 'brute-force', 'deny-rules.json')), beforeExistingRules);
     const verification = JSON.parse(await readFile(join(dir, 'xdr', 'web-injection', 'verification.json'), 'utf8'));
-    assert.equal(verification.clearAttacksDenied, 7);
-    assert.equal(verification.clearWebRulesMatched, 7);
+    assert.equal(verification.clearAttacksDenied, 8);
+    assert.equal(verification.clearWebRulesMatched, 8);
     assert.equal(verification.normalAllowed, 9);
     assert.equal(verification.normalBlocked + verification.normalDenied + verification.ambiguousDenied, 0);
     assert.equal(verification.expiresAfterSeconds, 900);

@@ -20,7 +20,7 @@ test('JavaScript 패턴 목록은 JSON 이름·조건·근거와 일치합니다
   assert.deepEqual(config, JSON.parse(await readFile(new URL('xdr/web-injection/patterns.json', root), 'utf8')));
 });
 
-test('원본과 다섯 항목 경보: 미응답 시 block 7·alert 10·record 9, 정상 차단 0', async () => {
+test('원본과 다섯 항목 경보: block 8·alert 9·record 9, 정상 차단 0', async () => {
   const rawDecide = createDecider({ jev: unavailable });
   const extractedDecide = createDecider({ jev: unavailable });
   const counts = { block: 0, alert: 0, record: 0 };
@@ -29,13 +29,13 @@ test('원본과 다섯 항목 경보: 미응답 시 block 7·alert 10·record 9,
     assert.deepEqual(decision, await extractedDecide(readAlert(alert)));
     assert.deepEqual(Object.keys(decision), ['action', 'confidence', 'reason']);
     assert.ok(!/[\r\n]/u.test(decision.reason));
-    if (index < 8 && index !== 5) assert.equal(decision.action, 'block');
+    if (index < 8) assert.equal(decision.action, 'block');
     else if (index < 17) assert.equal(decision.action, 'alert');
     else assert.equal(decision.action, 'record');
     counts[decision.action] += 1;
   }
-  assert.deepEqual(counts, { block: 7, alert: 10, record: 9 });
-  assert.deepEqual(rawDecide.getReviewStats(), { reviewsRequested: 10, responsesReceived: 0, fallbackAlerts: 10 });
+  assert.deepEqual(counts, { block: 8, alert: 9, record: 9 });
+  assert.deepEqual(rawDecide.getReviewStats(), { reviewsRequested: 9, responsesReceived: 0, fallbackAlerts: 9 });
 });
 
 test('명확한 공격과 정상 이벤트는 Jev를 호출하지 않습니다', async () => {
@@ -48,11 +48,11 @@ test('명확한 공격과 정상 이벤트는 Jev를 호출하지 않습니다',
   assert.equal(calls, 1);
 });
 
-test('Jev의 공격 확률을 그대로 사용하며 0.5·0.85 경계를 지킵니다', async () => {
-  for (const [confidence, action] of [[0, 'record'], [0.4999, 'record'], [0.5, 'alert'], [0.8499, 'alert'], [0.85, 'block'], [1, 'block']]) {
+test('애매한 시도는 Jev의 낮은 확률·높은 확률 모두 alert이며 확신도 값은 보존합니다', async () => {
+  for (const confidence of [0, 0.4999, 0.5, 0.8499, 0.85, 1]) {
     const decision = await createDecider({ jev: () => confidence })(fixture.alerts[8]);
     assert.equal(decision.confidence, confidence);
-    assert.equal(decision.action, action);
+    assert.equal(decision.action, 'alert');
   }
 });
 
@@ -79,11 +79,21 @@ test('요청 인자의 SQL·태그·반복 경로를 찾되 단어·단발·수�
     count: '4', level: 12, description: '스크립트 태그 수업 예시 요청 4건' }))).action, 'alert');
 });
 
-test('SQL 근거 없는 명령 구분자는 횟수·수준이 높아도 Jev 검토 대상입니다', async () => {
-  assert.equal(matchPatterns(fixture.alerts[5]).matched.length, 0);
+test('높은 수준의 연속 명령 구분자 경보는 별도 명령 주입 근거로 차단합니다', async () => {
+  assert.deepEqual(matchPatterns(fixture.alerts[5]).matched.map(pattern => pattern.id), ['command-injection']);
   const decision = await createDecider({ jev: unavailable })(fixture.alerts[5]);
-  assert.equal(decision.action, 'alert');
-  assert.match(decision.reason, /근거 미확정/u);
+  assert.equal(decision.action, 'block');
+  assert.equal(decision.reason, '반복된 명령 구분자 주입');
+  const changed = structuredClone(fixture.alerts[5]);
+  changed.id = 'renamed-command-event';
+  changed.data.srcip = '192.0.2.210';
+  changed.data.url = '/notes?q=unrelated-document-marker';
+  assert.equal((await createDecider({ jev: unavailable })(changed)).action, 'block');
+  changed.data.count = '1';
+  assert.equal((await createDecider({ jev: unavailable })(changed)).action, 'alert');
+  changed.data.count = '11';
+  changed.rule.level = 7;
+  assert.equal((await createDecider({ jev: unavailable })(changed)).action, 'alert');
 });
 
 test('유효 주소·시각·일관된 반복 근거가 없는 경우 확정 차단하지 않습니다', async () => {
@@ -167,5 +177,5 @@ test('JSON·내장 모듈·npm·네트워크·타이머 없는 격리 실행에�
   await entry.evaluate();
   const counts = { block: 0, alert: 0, record: 0 };
   for (const alert of fixture.alerts) counts[(await entry.namespace.decide(alert)).action] += 1;
-  assert.deepEqual(counts, { block: 7, alert: 10, record: 9 });
+  assert.deepEqual(counts, { block: 8, alert: 9, record: 9 });
 });

@@ -7,7 +7,7 @@ export const RULE_ID = 'xdr.brute_force.deny';
 export const WEB_RULE_ID = 'xdr.web_injection.deny';
 export const XDR_RULE_IDS = Object.freeze([RULE_ID, WEB_RULE_ID]);
 const moduleRules = { 'brute-force': RULE_ID, 'web-injection': WEB_RULE_ID };
-const webPatterns = new Set(['sql-injection', 'script-injection', 'path-traversal']);
+const webPatterns = new Set(['sql-injection', 'script-injection', 'path-traversal', 'command-injection']);
 const trustedContext = new AsyncLocalStorage();
 
 export function canonicalIp(value) {

@@ -57,6 +57,22 @@
       "evidence": "MITRE ATT&CK T1190은 디렉터리 탐색 취약점 악용 사례를 포함하며, CWE-22는 ../로 제한된 디렉터리 밖의 경로에 접근하는 형태를 설명한다.",
       "source": "https://attack.mitre.org/techniques/T1190/",
       "supportingSource": "https://cwe.mitre.org/data/definitions/22.html"
+    },
+    {
+      "id": "command-injection",
+      "name": "반복된 명령 구분자 주입",
+      "conditions": {
+        "scope": "request-arguments",
+        "ignoreCase": true,
+        "signals": ["명령 구분자 뒤에 운영체제 명령 이름이 이어지는 구문"],
+        "descriptionEvidence": "Wazuh 설명이 명령 구분자 표기가 연속 요청 또는 반복된 요청에 있음을 명시한다.",
+        "insufficientSignals": ["이름 검색의 구분 문자 한 건", "구분자만 있는 단발 요청", "반복되지 않았다는 설명"],
+        "contextNote": "차단에는 같은 유효한 출발 주소의 3회 이상 반복, 유효한 시각, 수준 10 이상, 정상·수업 문맥이 아님을 함께 확인한다."
+      },
+      "find": "요청 인자 안의 명령 구분자와 명령 구문 또는 Wazuh가 명시한 연속된 명령 구분자 주입 표기를 찾는다. 경보 번호나 문서용 요청 표식은 판단에 사용하지 않는다.",
+      "evidence": "MITRE ATT&CK T1190은 공개 앱의 명령 주입 악용 사례를 포함하며, CWE-78은 외부 입력의 특수 구분 요소가 운영체제 명령을 바꾸는 취약점을 설명한다.",
+      "source": "https://attack.mitre.org/techniques/T1190/",
+      "supportingSource": "https://cwe.mitre.org/data/definitions/78.html"
     }
   ]
 }

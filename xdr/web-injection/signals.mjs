@@ -53,17 +53,23 @@ export function matchPatterns(alert) {
   const descriptionSql = !deniedSignal && /SQL\s*(?:구문|표식|주입)|데이터베이스\s*조회[^.]{0,30}이어\s*붙/iu.test(description);
   const descriptionScript = !deniedSignal && /스크립트\s*(?:삽입|주입|표식)/u.test(description);
   const descriptionTraversal = !deniedSignal && /경로[^.]{0,40}(?:여러\s*단계[^.]{0,20}거슬러|이탈\s*표기)/u.test(description);
+  const commandSyntax = args.some(text => /(?:;|&&|\|\|)\s*(?:whoami|id|uname|cat|echo|cmd|powershell)\b/iu.test(text));
+  const descriptionCommand = !deniedSignal && /명령\s*구분자/u.test(description)
+    && /연속\s*요청|(?:요청|시도)[^.]{0,20}반복|구분자[^.]{0,20}반복/u.test(description)
+    && !/반복(?:되지)?\s*않|반복[^.]{0,10}없|연속[^.]{0,10}아니/u.test(description);
   const flags = {
     'sql-injection': sqlSyntax || descriptionSql,
     'script-injection': scriptTag || descriptionScript,
     'path-traversal': parentSegments >= config.patterns.find(p => p.id === 'path-traversal').conditions.minimumParentSegments
       || descriptionTraversal,
+    'command-injection': commandSyntax || descriptionCommand,
   };
   const matched = config.patterns.filter(p => flags[p.id]);
   const hints = new Set();
   if (/SQL|\bselect\b|데이터베이스|따옴표|구분/iu.test(description) || args.some(text => /\b(?:select|sql)\b|['";]/iu.test(text))) hints.add('sql-injection');
   if (/스크립트/u.test(description) || args.some(text => /\bscript\b/iu.test(text))) hints.add('script-injection');
   if (/경로|\bup\b/u.test(description) || parentSegments > 0) hints.add('path-traversal');
+  if (/명령\s*구분자/u.test(description) || commandSyntax) hints.add('command-injection');
   const candidates = matched.length ? matched : config.patterns.filter(p => hints.size === 0 || hints.has(p.id));
   const suspicious = matched.length > 0 || args.some(text => /['";]/u.test(text))
     || (row.level > 3 && /검색|주소|경로|조회|요청|따옴표|구분|주입|SQL|스크립트/u.test(description));
@@ -72,6 +78,7 @@ export function matchPatterns(alert) {
       && row.level >= POLICY.minimumLevel && attempts >= POLICY.minimumAttempts,
     signals: { sqlSyntax: sqlSyntax || descriptionSql, scriptTag: scriptTag || descriptionScript,
       repeatedParentSegments: flags['path-traversal'], tutorialContext, deniedSignal,
+      commandSyntax: flags['command-injection'],
       separatorOnly: /구분/u.test(description) && !sqlSyntax && !descriptionSql,
       successAfterAttempt: /뒤[^.]{0,12}정상\s*조회/u.test(description),
       unusualLengthOnly: /길/u.test(description) && matched.length === 0 },
