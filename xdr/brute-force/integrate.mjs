@@ -52,7 +52,7 @@ export function withXdr({ sourceOf, denyResponse, decide = baseDecide, rules,
   };
 }
 
-export async function afterRun({ root, alerts, decisions }) {
+export async function afterRun({ root, alerts, decisions, jev = null }) {
   const dir = join(root, 'xdr', 'brute-force');
   await mkdir(dir, { recursive: true });
   const document = makeDenyRules(alerts, decisions);
@@ -97,6 +97,7 @@ export async function afterRun({ root, alerts, decisions }) {
     normalPassedToExistingPolicy: normal.length - normalDenied.length,
     expiresAfterSeconds: TTL_MS / 1000, mode: 'fixture-replay',
     connection: 'src/ztna.mjs -> src/decider.mjs -> src/xdr-policy.mjs',
+    jev,
   };
   await writeFile(join(dir, 'verification.json'), `${JSON.stringify(verification, null, 2)}\n`, 'utf8');
   if (verification.normalBlocked || verification.normalDenied || verification.ambiguousBlocked

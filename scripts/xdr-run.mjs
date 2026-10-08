@@ -17,7 +17,7 @@ export function isDecision(value) {
     && typeof value.reason === 'string';
 }
 
-export async function runXdr({ root, moduleKey, writeError = (line) => console.error(line) }) {
+export async function runXdr({ root, moduleKey, writeError = (line) => console.error(line), reportJev = () => {} }) {
   if (!MODULE_KEYS.includes(moduleKey)) {
     throw new Error('moduleKey 가 없습니다. brute-force, web-injection, known-cve, persistence, privilege, exfiltration 중 하나를 넣습니다.');
   }
@@ -27,6 +27,7 @@ export async function runXdr({ root, moduleKey, writeError = (line) => console.e
   }
   const loaded = await import(pathToFileURL(join(root, 'xdr', moduleKey, 'decide.mjs')).href);
   if (typeof loaded.decide !== 'function') throw new Error('decide 함수를 내보내지 않았습니다.');
+  const decide = typeof loaded.createDecider === 'function' ? loaded.createDecider() : loaded.decide;
 
   const decisions = [];
   const counts = { block: 0, alert: 0, record: 0 };
@@ -36,7 +37,7 @@ export async function runXdr({ root, moduleKey, writeError = (line) => console.e
     let confidence = 0;
     let reason = '반환 형식이 아닙니다';
     try {
-      const out = await loaded.decide(alert);
+      const out = await decide(alert);
       if (isDecision(out)) {
         action = out.action;
         confidence = out.confidence;
@@ -55,7 +56,9 @@ export async function runXdr({ root, moduleKey, writeError = (line) => console.e
   const outDir = join(root, 'xdr', moduleKey);
   await mkdir(outDir, { recursive: true });
   await writeFile(join(outDir, 'result.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8');
-  if (typeof loaded.afterRun === 'function') await loaded.afterRun({ root, alerts: fixture.alerts, decisions });
+  const jev = typeof decide.getReviewStats === 'function' ? decide.getReviewStats() : null;
+  if (typeof loaded.afterRun === 'function') await loaded.afterRun({ root, alerts: fixture.alerts, decisions, jev });
+  if (jev) reportJev(jev);
   return result;
 }
 
@@ -63,7 +66,10 @@ const isMain = process.argv[1] && resolve(process.argv[1]) === resolve(fileURLTo
 if (isMain) {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..');
   try {
-    await runXdr({ root, moduleKey: process.argv[2] });
+    const result = await runXdr({ root, moduleKey: process.argv[2], reportJev: (jev) => {
+      console.log(`Jev 응답 수신 ${jev.responsesReceived}건 · 미응답 알림 ${jev.fallbackAlerts}건`);
+    } });
+    console.log(`block ${result.counts.block} · alert ${result.counts.alert} · record ${result.counts.record}`);
   } catch (error) {
     console.error(error instanceof Error ? error.message : '실행 오류');
     process.exitCode = 1;
