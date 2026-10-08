@@ -59,7 +59,7 @@ export async function runXdr({ root, moduleKey, writeError = (line) => console.e
   const jev = typeof decide.getReviewStats === 'function' ? decide.getReviewStats() : null;
   let afterRun = loaded.afterRun;
   // Host-only storage/integration stays outside the isolated decision graph.
-  if (typeof afterRun !== 'function' && moduleKey === 'brute-force') {
+  if (typeof afterRun !== 'function' && ['brute-force', 'web-injection'].includes(moduleKey)) {
     const hookPath = join(outDir, 'integrate.mjs');
     let exists = true;
     try { await access(hookPath); }

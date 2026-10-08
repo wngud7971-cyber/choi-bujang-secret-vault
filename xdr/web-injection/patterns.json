@@ -1,0 +1,62 @@
+{
+  "schema": "aleph.xdr.patterns.v1",
+  "moduleKey": "web-injection",
+  "technique": "T1190",
+  "source": "https://attack.mitre.org/techniques/T1190/",
+  "mappingNote": "T1190은 외부 공개 앱 악용의 상위 분류다. 아래 조건은 이 과제에서 확인할 요청 신호이며, 일치만으로 취약점 악용 성공이나 초기 접근을 입증하지 않는다. 스크립트 태그의 구체적인 근거는 CWE-79로 보완한다.",
+  "thresholdNote": "상위 경로 이동 2회 이상은 과제의 반복 신호를 구체화한 탐지 기준이며 MITRE가 정한 차단 임계값이 아니다. 같은 출발 주소의 반복된 명확한 시도 확인과 차단 판단은 다음 단계에서 별도로 구현한다.",
+  "inputNote": "요청 인자와 경로는 퍼센트 인코딩을 해석한 형태에서 확인한다. 원본 요청 항목이 없는 다섯 항목 경보는 설명에 명시된 주입 형태를 근거로 사용한다. 원본 요청·비밀값은 출력하거나 외부로 보내지 않는다.",
+  "patterns": [
+    {
+      "id": "sql-injection",
+      "name": "요청 인자의 SQL 구문",
+      "conditions": {
+        "scope": "request-arguments",
+        "ignoreCase": true,
+        "signals": [
+          "SELECT와 FROM 등 SQL 절이 구문 형태로 결합되어 있다.",
+          "OR 또는 AND 뒤에 비교 조건을 덧붙여 SQL 조건식을 바꾸려는 형태가 있다.",
+          "구문 구분자 뒤에 SQL 명령이 이어지거나 SQL 주석과 명령이 함께 있다."
+        ],
+        "descriptionEvidence": "설명이 SQL 구문 삽입·이어 붙이기 또는 데이터베이스 조회 이어 붙이기를 명시한다.",
+        "insufficientSignals": ["select 또는 SQL이라는 단어 하나", "따옴표 하나", "구분자 하나"]
+      },
+      "find": "요청 인자 안에서 SQL 절·조건식·추가 명령의 구조를 찾는다. 단순 단어·따옴표·구분자만 있는 요청은 이 패턴의 명확한 근거로 삼지 않는다.",
+      "evidence": "MITRE ATT&CK T1190은 외부 웹사이트 SQL 주입 사례를 포함하며, CWE-89는 외부 입력의 SQL 구문이 원래 명령을 바꾸는 취약점을 설명한다.",
+      "source": "https://attack.mitre.org/techniques/T1190/",
+      "supportingSource": "https://cwe.mitre.org/data/definitions/89.html"
+    },
+    {
+      "id": "script-injection",
+      "name": "요청 인자의 스크립트 태그",
+      "conditions": {
+        "scope": "request-arguments",
+        "ignoreCase": true,
+        "signals": ["태그 경계가 있는 <script> 또는 속성이 붙은 script 시작 태그", "태그 경계가 있는 </script> 종료 태그"],
+        "descriptionEvidence": "설명이 스크립트 삽입 표기 또는 스크립트 주입 표식을 명시한다.",
+        "insufficientSignals": ["script 또는 스크립트라는 수업 단어", "태그가 없는 수업명", "삽입 표식이 아니라는 설명"],
+        "contextNote": "태그를 인용한 수업 자료나 단발 요청은 문맥 확인이 필요하며 태그 일치만으로 차단하지 않는다."
+      },
+      "find": "요청 인자 안에서 실제 스크립트 태그를 찾는다. 대소문자와 인코딩을 고려하되 수업 단어만으로 일치시키지 않는다.",
+      "evidence": "T1190의 외부 공개 앱 악용 조사 맥락에서 확인하는 요청 신호이며, MITRE CWE-79는 요청 인자의 script 태그가 웹 출력에서 실행되는 스크립트 주입을 설명한다.",
+      "source": "https://attack.mitre.org/techniques/T1190/",
+      "supportingSource": "https://cwe.mitre.org/data/definitions/79.html"
+    },
+    {
+      "id": "path-traversal",
+      "name": "반복된 상위 경로 이동",
+      "conditions": {
+        "scope": "request-path-or-path-argument",
+        "parentSegment": "../",
+        "minimumParentSegments": 2,
+        "descriptionEvidence": "설명이 여러 단계의 상위 경로 이동 또는 반복된 경로 이탈 표기를 명시한다.",
+        "insufficientSignals": ["up이라는 단어", "점이나 슬래시 하나", "../ 한 번만 있는 상대 경로"],
+        "contextNote": "정상 상대 경로 및 수업 예시 문맥을 확인하며 경로 표기만으로 차단하지 않는다."
+      },
+      "find": "요청 경로나 경로 인자에 ../ 상위 경로 이동이 두 번 이상 있는지 확인한다. 경로 정규화로 표기가 사라지기 전에 검사한다.",
+      "evidence": "MITRE ATT&CK T1190은 디렉터리 탐색 취약점 악용 사례를 포함하며, CWE-22는 ../로 제한된 디렉터리 밖의 경로에 접근하는 형태를 설명한다.",
+      "source": "https://attack.mitre.org/techniques/T1190/",
+      "supportingSource": "https://cwe.mitre.org/data/definitions/22.html"
+    }
+  ]
+}
