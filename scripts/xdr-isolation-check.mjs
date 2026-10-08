@@ -1,43 +1,45 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { SourceTextModule, SyntheticModule, createContext } from 'node:vm';
+import { SourceTextModule, createContext } from 'node:vm';
 
 // Local loader compatibility check, not the judge or a security sandbox.
-// JSON module imports are refused; ordinary JavaScript dependencies are linked.
+// Only relative JavaScript files can be imported by the decision graph.
 const root = new URL('../', import.meta.url);
 const entry = new URL('xdr/brute-force/decide.mjs', root);
-const context = createContext({
-  process: { env: {}, argv: [] }, URL, AbortController, setTimeout, clearTimeout,
-  fetch: () => { throw new Error('network_disabled'); },
-});
+// No process, network, timers, AbortController or host filesystem in the VM.
+const context = createContext({});
 const modules = new Map();
-function rejectJson(specifier) {
+function checkImport(specifier) {
   if (/\.json(?:[?#]|$)/u.test(specifier)) throw new Error('JSON imports are disabled');
+  if (!/^\.\.?\//u.test(specifier)) throw new Error('Builtin and package imports are disabled');
+  if (!/\.mjs$/u.test(specifier)) throw new Error('Only JavaScript modules are supported');
 }
 async function link(specifier, parent) {
-  rejectJson(specifier);
-  const identifier = specifier.startsWith('node:') ? specifier : new URL(specifier, parent.identifier).href;
-  if (!specifier.startsWith('node:') && !identifier.startsWith(root.href)) throw new Error('Module outside project');
+  checkImport(specifier);
+  return load(new URL(specifier, parent.identifier).href);
+}
+async function load(identifier) {
+  if (!identifier.startsWith(root.href)) throw new Error('Module outside project');
   if (!modules.has(identifier)) modules.set(identifier, (async () => {
-    if (identifier.startsWith('node:')) {
-      const namespace = await import(identifier);
-      return new SyntheticModule(Object.keys(namespace), function () {
-        for (const name of Object.keys(namespace)) this.setExport(name, namespace[name]);
-      }, { context, identifier });
-    }
     return new SourceTextModule(await readFile(new URL(identifier), 'utf8'), {
       context, identifier, initializeImportMeta: meta => { meta.url = identifier; },
+      importModuleDynamically: () => { throw new Error('Dynamic imports are disabled'); },
     });
   })());
   return modules.get(identifier);
 }
 
-// Negative control: this loader actually rejects the former import form.
-const jsonControl = new SourceTextModule("import config from './patterns.json' with { type: 'json' };", {
-  context, identifier: entry.href,
-});
-await assert.rejects(jsonControl.link(link), /JSON imports are disabled/u);
-const loaded = await link(entry.href, { identifier: root.href });
+// Negative controls prove that the known rejected imports cannot slip through.
+for (const [source, error] of [
+  ["import config from './patterns.json' with { type: 'json' };", /JSON imports are disabled/u],
+  ["import 'node:fs';", /Builtin and package imports are disabled/u],
+  ["import 'fs';", /Builtin and package imports are disabled/u],
+  ["import 'jose';", /Builtin and package imports are disabled/u],
+]) {
+  const control = new SourceTextModule(source, { context, identifier: entry.href });
+  await assert.rejects(control.link(link), error);
+}
+const loaded = await load(entry.href);
 await loaded.link(link);
 await loaded.evaluate();
 const fixture = JSON.parse(await readFile(new URL('xdr/fixtures/brute-force.json', root), 'utf8'));
@@ -52,4 +54,6 @@ for (const alert of fixture.alerts) {
 }
 assert.deepEqual(counts, { block: 10, alert: 9, record: 9 });
 assert.equal(normalBlocked, 0);
-console.log(JSON.stringify({ jsonImportGuardChecked: true, counts, normalBlocked }));
+console.log(JSON.stringify({ importGuardsChecked: true,
+  moduleFiles: [...modules.keys()].map(identifier => identifier.slice(root.href.length)).sort(),
+  counts, normalBlocked }));

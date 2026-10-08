@@ -1,5 +1,5 @@
 import config from './patterns.mjs';
-import { evidence } from './read-alerts.mjs';
+import { evidence } from './alert-fields.mjs';
 import { askJev } from './jev.mjs';
 
 const patterns = Object.fromEntries(config.patterns.map(pattern => [pattern.id, pattern]));
@@ -67,7 +67,7 @@ export function createDecider({ jev = askJev, timeoutMs = 1500 } = {}) {
     if (match.normal) return result(0.1, '해당 없음');
     if (match.clear) return result(0.95, match.pattern.name);
     usage.reviewsRequested += 1;
-    const controller = new AbortController();
+    const controller = typeof globalThis.AbortController === 'function' ? new globalThis.AbortController() : null;
     let timer;
     try {
       // Send only numbers and pattern identifiers, no original logs, accounts, IPs or passwords.
@@ -77,8 +77,11 @@ export function createDecider({ jev = askJev, timeoutMs = 1500 } = {}) {
           windowSeconds: match.windowSeconds, successAfterFailures: match.successAfterFailures,
           unusualSource: match.unusualSource, irregularIntervals: match.irregularIntervals,
           passwordChange: match.passwordChange, afterLockout: match.afterLockout,
-        }, { signal: controller.signal })),
-        new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('jev_timeout')); }, timeoutMs); }),
+        }, { signal: controller?.signal })),
+        new Promise((_, reject) => {
+          if (typeof globalThis.setTimeout !== 'function') { reject(new Error('jev_timeout_unavailable')); return; }
+          timer = globalThis.setTimeout(() => { controller?.abort(); reject(new Error('jev_timeout')); }, timeoutMs);
+        }),
       ]);
       if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) throw new Error('jev_invalid_response');
       usage.responsesReceived += 1;
@@ -86,11 +89,10 @@ export function createDecider({ jev = askJev, timeoutMs = 1500 } = {}) {
     } catch {
       usage.fallbackAlerts += 1;
       return result(0.5, match.pattern.name);
-    } finally { clearTimeout(timer); }
+    } finally { if (typeof globalThis.clearTimeout === 'function') globalThis.clearTimeout(timer); }
   };
   decide.getReviewStats = () => ({ ...usage });
   return decide;
 }
 
 export const decide = createDecider();
-export { afterRun } from './integrate.mjs';

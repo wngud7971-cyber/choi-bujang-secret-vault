@@ -3,7 +3,7 @@ export const JEV_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
 const PATTERNS = new Set(['repeated-failures', 'password-spraying', 'password-guessing']);
 const count = value => Number.isInteger(value) && value >= 0 && value <= 1_000_000 ? value : null;
 
-export async function askJev(summary, { signal, apiKey = process.env.TYPESAFE_API_KEY,
+export async function askJev(summary, { signal, apiKey = globalThis.process?.env?.TYPESAFE_API_KEY,
   fetchImpl = globalThis.fetch } = {}) {
   if (typeof apiKey !== 'string' || !apiKey.trim() || apiKey !== apiKey.trim() || /[\r\n]/u.test(apiKey)) {
     throw new Error('jev_unconfigured');
