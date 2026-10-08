@@ -1,0 +1,116 @@
+{
+  "schema": "aleph.xdr.deny-rules.v1",
+  "moduleKey": "brute-force",
+  "rules": [
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "action": "deny",
+      "sourceIp": "203.0.113.10",
+      "startsAt": "2026-09-27T00:12:01.000Z",
+      "expiresAt": "2026-09-27T00:27:01.000Z",
+      "alertIds": [
+        "bf-01"
+      ],
+      "pattern": "동일 주소·계정의 로그인 실패 연속"
+    },
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "action": "deny",
+      "sourceIp": "203.0.113.10",
+      "startsAt": "2026-09-27T00:12:40.000Z",
+      "expiresAt": "2026-09-27T00:27:40.000Z",
+      "alertIds": [
+        "bf-02"
+      ],
+      "pattern": "여러 계정에 같은 비밀번호 대입"
+    },
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "action": "deny",
+      "sourceIp": "198.51.100.20",
+      "startsAt": "2026-09-27T00:14:02.000Z",
+      "expiresAt": "2026-09-27T00:29:02.000Z",
+      "alertIds": [
+        "bf-03"
+      ],
+      "pattern": "계정별 비밀번호 추측 반복"
+    },
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "action": "deny",
+      "sourceIp": "192.0.2.30",
+      "startsAt": "2026-09-27T00:20:11.000Z",
+      "expiresAt": "2026-09-27T00:35:11.000Z",
+      "alertIds": [
+        "bf-04"
+      ],
+      "pattern": "동일 주소·계정의 로그인 실패 연속"
+    },
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "action": "deny",
+      "sourceIp": "203.0.113.21",
+      "startsAt": "2026-09-27T00:21:00.000Z",
+      "expiresAt": "2026-09-27T00:36:00.000Z",
+      "alertIds": [
+        "bf-05"
+      ],
+      "pattern": "계정별 비밀번호 추측 반복"
+    },
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "action": "deny",
+      "sourceIp": "198.51.100.44",
+      "startsAt": "2026-09-27T02:02:15.000Z",
+      "expiresAt": "2026-09-27T02:17:15.000Z",
+      "alertIds": [
+        "bf-06"
+      ],
+      "pattern": "동일 주소·계정의 로그인 실패 연속"
+    },
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "action": "deny",
+      "sourceIp": "203.0.113.15",
+      "startsAt": "2026-09-27T02:05:40.000Z",
+      "expiresAt": "2026-09-27T02:20:40.000Z",
+      "alertIds": [
+        "bf-07"
+      ],
+      "pattern": "계정별 비밀번호 추측 반복"
+    },
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "action": "deny",
+      "sourceIp": "192.0.2.18",
+      "startsAt": "2026-09-27T04:10:02.000Z",
+      "expiresAt": "2026-09-27T04:25:02.000Z",
+      "alertIds": [
+        "bf-08"
+      ],
+      "pattern": "동일 주소·계정의 로그인 실패 연속"
+    },
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "action": "deny",
+      "sourceIp": "198.51.100.8",
+      "startsAt": "2026-09-27T05:22:18.000Z",
+      "expiresAt": "2026-09-27T05:37:18.000Z",
+      "alertIds": [
+        "bf-09"
+      ],
+      "pattern": "여러 계정에 같은 비밀번호 대입"
+    },
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "action": "deny",
+      "sourceIp": "203.0.113.40",
+      "startsAt": "2026-09-27T06:40:01.000Z",
+      "expiresAt": "2026-09-27T06:55:01.000Z",
+      "alertIds": [
+        "bf-10"
+      ],
+      "pattern": "동일 주소·계정의 로그인 실패 연속"
+    }
+  ]
+}
