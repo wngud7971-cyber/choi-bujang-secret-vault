@@ -63,8 +63,7 @@ export function createDecider({ jev = askJev, timeoutMs = 1500 } = {}) {
         new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('jev_timeout')); }, timeoutMs); }),
       ]);
       if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) throw new Error('jev_invalid_response');
-      // Weak local evidence cannot authorize an IP block solely on a model score.
-      return result(Math.min(confidence, 0.84), match.pattern.name);
+      return result(confidence, match.pattern.name);
     } catch {
       return result(0.5, match.pattern.name);
     } finally { clearTimeout(timer); }

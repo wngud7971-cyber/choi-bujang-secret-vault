@@ -8,6 +8,8 @@ import { readAlerts, readAlert } from '../xdr/brute-force/read-alerts.mjs';
 import { makeDenyRules, checkSource, withXdr, TTL_MS, RULE_ID } from '../xdr/brute-force/integrate.mjs';
 import { runXdr } from '../scripts/xdr-run.mjs';
 import { decide as original } from '../src/decider.mjs';
+import { createZtnaConnection } from '../src/ztna.mjs';
+import { askJev } from '../xdr/brute-force/jev.mjs';
 
 const root = new URL('../', import.meta.url);
 const fixture = JSON.parse(await readFile(new URL('../xdr/fixtures/brute-force.json', import.meta.url)));
@@ -87,11 +89,11 @@ test('Jev 오류·범위 밖·형식 오류·시간초과는 alert로 내려갑�
   }
 });
 
-test('확신도 0.5 경계와 약한 증거의 차단 방지 상한을 지킵니다', async () => {
-  for (const [confidence, action, expected] of [[0.49, 'record', 0.49], [0.5, 'alert', 0.5], [0.84, 'alert', 0.84], [0.99, 'alert', 0.84]]) {
+test('Jev 확신도 0.5·0.85 경계를 수정 없이 적용합니다', async () => {
+  for (const [confidence, action] of [[0, 'record'], [0.49, 'record'], [0.5, 'alert'], [0.8499, 'alert'], [0.85, 'block'], [0.99, 'block'], [1, 'block']]) {
     const out = await createDecider({ jev: () => confidence })(fixture.alerts[10]);
     assert.equal(out.action, action);
-    assert.equal(out.confidence, expected);
+    assert.equal(out.confidence, confidence);
   }
 });
 
@@ -144,7 +146,8 @@ test('거부 규칙에는 명확한 근거만 들어가며 만료 후와 정상 
 
 test('추가 검사는 정상 요청을 기존 판정기로 넘기고 기존 거부도 보존합니다', async () => {
   const request = { schema: 'aleph.decision.v1', requestId: 'synthetic-request' };
-  const document = makeDenyRules([fixture.alerts[0]], [{ alertId: fixture.alerts[0].id, action: 'block', confidence: 0.95 }]);
+  const document = makeDenyRules([fixture.alerts[0]], [{ alertId: fixture.alerts[0].id,
+    action: 'block', confidence: 0.95, reason: matchPatterns(fixture.alerts[0]).pattern.name }]);
   const allow = async req => ({ schema: req.schema, requestId: req.requestId, decision: 'allow', reasonCode: 'approved', ruleIds: [] });
   const denyResponse = (req, rule) => ({ schema: req.schema, requestId: req.requestId, decision: 'deny', reasonCode: 'xdr_brute_force', ruleIds: [rule.ruleId] });
   const options = { rules: document, denyResponse, clock: () => fixture.alerts[0].timestamp };
@@ -169,7 +172,9 @@ test('실제 실행기의 처리 후 연결이 result·규칙·안전한 추가 
   try {
     await cp(new URL('../xdr', import.meta.url), join(dir, 'xdr'), { recursive: true });
     await mkdir(join(dir, 'src'), { recursive: true });
-    await cp(new URL('../src/decider.mjs', import.meta.url), join(dir, 'src', 'decider.mjs'));
+    for (const file of ['decider.mjs', 'xdr-policy.mjs', 'ztna.mjs']) {
+      await cp(new URL(`../src/${file}`, import.meta.url), join(dir, 'src', file));
+    }
     const before = await readFile(join(dir, 'xdr', 'fixtures', 'brute-force.json'));
     const first = await runXdr({ root: dir, moduleKey: 'brute-force' });
     const second = await runXdr({ root: dir, moduleKey: 'brute-force' });
@@ -178,8 +183,79 @@ test('실제 실행기의 처리 후 연결이 result·규칙·안전한 추가 
     assert.deepEqual(await readFile(join(dir, 'xdr', 'fixtures', 'brute-force.json')), before);
     const verification = JSON.parse(await readFile(join(dir, 'xdr', 'brute-force', 'verification.json')));
     assert.equal(verification.normalBlocked + verification.normalDenied + verification.ambiguousBlocked, 0);
+    assert.equal(verification.clearAttacksDenied, 10);
+    assert.equal(verification.normalPassedToExistingPolicy, 9);
+    assert.match(verification.connection, /src\/decider\.mjs/u);
     const lines = (await readFile(join(dir, 'xdr', 'alerts.log'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     assert.ok(lines.length >= 38);
     for (const line of lines) assert.deepEqual(Object.keys(line), ['timestamp', 'alertId', 'action', 'confidence', 'reason']);
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('Jev HTTPS 어댑터의 JSON 확신도가 판단·거부 규칙·실제 판정기로 이어집니다', async () => {
+  const alert = copy(fixture.alerts[10]);
+  let calls = 0;
+  const jev = summary => askJev(summary, {
+    endpoint: 'https://jev-adapter.example.invalid/review',
+    apiKey: 'test-value',
+    fetchImpl: async (url, options) => {
+      calls += 1;
+      assert.equal(url.protocol, 'https:');
+      assert.equal(options.method, 'POST');
+      assert.equal(options.headers.Authorization, 'Bearer test-value');
+      const body = JSON.parse(options.body);
+      assert.equal(body.pattern, 'repeated-failures');
+      for (const value of [alert.id, alert.data.srcip, alert.data.srcuser, alert.rule.description]) assert.ok(!options.body.includes(value));
+      return new Response(JSON.stringify({ confidence: 0.9 }));
+    },
+  });
+  const decision = { alertId: alert.id, ...await createDecider({ jev })(alert) };
+  assert.equal(decision.action, 'block');
+  const document = makeDenyRules([alert], [decision]);
+  assert.equal(document.rules.length, 1);
+  const connected = createZtnaConnection({ rules: async () => document, clock: () => alert.timestamp });
+  const response = await connected({ schema: 'aleph.decision.v1', requestId: 'reviewed-fixture' },
+    { socket: { remoteAddress: alert.data.srcip } });
+  assert.deepEqual(response.ruleIds, [RULE_ID]);
+  assert.equal(response.decision, 'deny');
+  assert.equal(calls, 1);
+});
+
+test('Jev 미설정·HTTP 오류·잘못된 JSON은 안전한 알림으로 처리됩니다', async () => {
+  const alert = fixture.alerts[10];
+  const cases = [
+    { endpoint: '' },
+    { endpoint: 'http://untrusted.example.invalid' },
+    { endpoint: 'https://untrusted.example.invalid/?secret=value' },
+    { endpoint: 'https://jev.example.invalid', fetchImpl: async () => new Response('', { status: 503 }) },
+    { endpoint: 'https://jev.example.invalid', fetchImpl: async () => new Response('not-json') },
+    { endpoint: 'https://jev.example.invalid', fetchImpl: async () => new Response(JSON.stringify({ confidence: '0.9' })) },
+  ];
+  for (const options of cases) {
+    const out = await createDecider({ jev: summary => askJev(summary, options) })(alert);
+    assert.equal(out.action, 'alert');
+    assert.equal(out.confidence, 0.5);
+  }
+});
+
+test('실제 판정기 연결은 헤더를 신뢰하지 않고 동시 요청의 주소를 분리합니다', async () => {
+  const alert = fixture.alerts[0];
+  const document = makeDenyRules([alert], [{ alertId: alert.id, ...await createDecider()(alert) }]);
+  const connected = createZtnaConnection({ rules: async () => {
+    await new Promise(resolve => setTimeout(resolve, 2));
+    return document;
+  }, clock: () => alert.timestamp });
+  const request = { schema: 'aleph.decision.v1', requestId: 'concurrent-fixture' };
+  const inputs = Array.from({ length: 20 }, (_, n) => n % 2 === 0
+    ? { socket: { remoteAddress: `::ffff:${alert.data.srcip}` } }
+    : { socket: { remoteAddress: '192.0.2.60' }, headers: { 'x-forwarded-for': alert.data.srcip } });
+  const results = await Promise.all(inputs.map(transport => connected(request, transport)));
+  for (let n = 0; n < results.length; n += 1) {
+    assert.deepEqual(results[n].ruleIds, n % 2 === 0 ? [RULE_ID] : ['starter.deny']);
+    assert.equal(results[n].reasonCode, 'starter_not_ready');
+    assert.deepEqual(Object.keys(results[n]).sort(), ['decision', 'reasonCode', 'requestId', 'ruleIds', 'schema']);
+  }
+  const expired = createZtnaConnection({ rules: async () => document, clock: () => document.rules[0].expiresAt });
+  assert.deepEqual((await expired(request, inputs[0])).ruleIds, ['starter.deny']);
+  assert.deepEqual((await original(request)).ruleIds, ['starter.deny']);
 });

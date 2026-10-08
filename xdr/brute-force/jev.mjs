@@ -1,15 +1,16 @@
 // Optional server-owned adapter. No guessed endpoint or credentials are shipped.
 // A configured HTTPS adapter must return { confidence: number }.
-export async function askJev(summary, { signal } = {}) {
-  if (!process.env.JEV_ENDPOINT) throw new Error('jev_unconfigured');
-  const endpoint = new URL(process.env.JEV_ENDPOINT);
-  if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
+export async function askJev(summary, { signal, endpoint = process.env.JEV_ENDPOINT,
+  apiKey = process.env.JEV_API_KEY, fetchImpl = globalThis.fetch } = {}) {
+  if (!endpoint) throw new Error('jev_unconfigured');
+  const url = new URL(endpoint);
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
     throw new Error('jev_configuration_invalid');
   }
-  const response = await fetch(endpoint, {
+  const response = await fetchImpl(url, {
     method: 'POST', redirect: 'error', signal,
     headers: { 'Content-Type': 'application/json',
-      ...(process.env.JEV_API_KEY ? { Authorization: `Bearer ${process.env.JEV_API_KEY}` } : {}),
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
     },
     body: JSON.stringify(summary),
   });
