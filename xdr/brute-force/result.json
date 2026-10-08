@@ -65,31 +65,31 @@
     {
       "alertId": "bf-11",
       "action": "record",
-      "confidence": 0.16,
+      "confidence": 0.17,
       "reason": "동일 주소·계정의 로그인 실패 연속"
     },
     {
       "alertId": "bf-12",
       "action": "record",
-      "confidence": 0.24,
+      "confidence": 0.23,
       "reason": "동일 주소·계정의 로그인 실패 연속"
     },
     {
       "alertId": "bf-13",
       "action": "alert",
-      "confidence": 0.55,
+      "confidence": 0.54,
       "reason": "동일 주소·계정의 로그인 실패 연속"
     },
     {
       "alertId": "bf-14",
       "action": "record",
-      "confidence": 0.35,
+      "confidence": 0.34,
       "reason": "동일 주소·계정의 로그인 실패 연속"
     },
     {
       "alertId": "bf-15",
       "action": "record",
-      "confidence": 0.27,
+      "confidence": 0.28,
       "reason": "동일 주소·계정의 로그인 실패 연속"
     },
     {
@@ -100,20 +100,20 @@
     },
     {
       "alertId": "bf-17",
-      "action": "record",
-      "confidence": 0.17,
+      "action": "alert",
+      "confidence": 0.5,
       "reason": "동일 주소·계정의 로그인 실패 연속"
     },
     {
       "alertId": "bf-18",
       "action": "record",
-      "confidence": 0.42,
+      "confidence": 0.41,
       "reason": "동일 주소·계정의 로그인 실패 연속"
     },
     {
       "alertId": "bf-19",
       "action": "record",
-      "confidence": 0.21,
+      "confidence": 0.22,
       "reason": "동일 주소·계정의 로그인 실패 연속"
     },
     {
@@ -173,7 +173,7 @@
   ],
   "counts": {
     "block": 10,
-    "alert": 1,
-    "record": 17
+    "alert": 2,
+    "record": 16
   }
 }

@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -57,7 +57,16 @@ export async function runXdr({ root, moduleKey, writeError = (line) => console.e
   await mkdir(outDir, { recursive: true });
   await writeFile(join(outDir, 'result.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8');
   const jev = typeof decide.getReviewStats === 'function' ? decide.getReviewStats() : null;
-  if (typeof loaded.afterRun === 'function') await loaded.afterRun({ root, alerts: fixture.alerts, decisions, jev });
+  let afterRun = loaded.afterRun;
+  // Host-only storage/integration stays outside the isolated decision graph.
+  if (typeof afterRun !== 'function' && moduleKey === 'brute-force') {
+    const hookPath = join(outDir, 'integrate.mjs');
+    let exists = true;
+    try { await access(hookPath); }
+    catch (error) { if (error.code === 'ENOENT') exists = false; else throw error; }
+    if (exists) afterRun = (await import(pathToFileURL(hookPath).href)).afterRun;
+  }
+  if (typeof afterRun === 'function') await afterRun({ root, alerts: fixture.alerts, decisions, jev });
   if (jev) reportJev(jev);
   return result;
 }
