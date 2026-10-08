@@ -1,0 +1,119 @@
+{
+  "schema": "aleph.xdr.deny-rules.v1",
+  "moduleKey": "web-injection",
+  "rules": [
+    {
+      "ruleId": "xdr.web_injection.deny",
+      "action": "deny",
+      "sourceIp": "203.0.113.10",
+      "startsAt": "2026-09-27T00:13:01.000Z",
+      "expiresAt": "2026-09-27T00:28:01.000Z",
+      "alertIds": [
+        "wi-01"
+      ],
+      "pattern": "요청 인자의 SQL 구문",
+      "patternIds": [
+        "sql-injection"
+      ],
+      "attempts": 12,
+      "confidence": 0.95
+    },
+    {
+      "ruleId": "xdr.web_injection.deny",
+      "action": "deny",
+      "sourceIp": "203.0.113.10",
+      "startsAt": "2026-09-27T00:13:20.000Z",
+      "expiresAt": "2026-09-27T00:28:20.000Z",
+      "alertIds": [
+        "wi-02"
+      ],
+      "pattern": "요청 인자의 스크립트 태그",
+      "patternIds": [
+        "script-injection"
+      ],
+      "attempts": 9,
+      "confidence": 0.95
+    },
+    {
+      "ruleId": "xdr.web_injection.deny",
+      "action": "deny",
+      "sourceIp": "198.51.100.15",
+      "startsAt": "2026-09-27T00:16:04.000Z",
+      "expiresAt": "2026-09-27T00:31:04.000Z",
+      "alertIds": [
+        "wi-03"
+      ],
+      "pattern": "반복된 상위 경로 이동",
+      "patternIds": [
+        "path-traversal"
+      ],
+      "attempts": 8,
+      "confidence": 0.95
+    },
+    {
+      "ruleId": "xdr.web_injection.deny",
+      "action": "deny",
+      "sourceIp": "192.0.2.15",
+      "startsAt": "2026-09-27T01:02:11.000Z",
+      "expiresAt": "2026-09-27T01:17:11.000Z",
+      "alertIds": [
+        "wi-04"
+      ],
+      "pattern": "요청 인자의 SQL 구문",
+      "patternIds": [
+        "sql-injection"
+      ],
+      "attempts": 20,
+      "confidence": 0.95
+    },
+    {
+      "ruleId": "xdr.web_injection.deny",
+      "action": "deny",
+      "sourceIp": "203.0.113.18",
+      "startsAt": "2026-09-27T01:18:33.000Z",
+      "expiresAt": "2026-09-27T01:33:33.000Z",
+      "alertIds": [
+        "wi-05"
+      ],
+      "pattern": "요청 인자의 SQL 구문 / 요청 인자의 스크립트 태그",
+      "patternIds": [
+        "sql-injection",
+        "script-injection"
+      ],
+      "attempts": 15,
+      "confidence": 0.95
+    },
+    {
+      "ruleId": "xdr.web_injection.deny",
+      "action": "deny",
+      "sourceIp": "192.0.2.21",
+      "startsAt": "2026-09-27T04:04:19.000Z",
+      "expiresAt": "2026-09-27T04:19:19.000Z",
+      "alertIds": [
+        "wi-07"
+      ],
+      "pattern": "반복된 상위 경로 이동",
+      "patternIds": [
+        "path-traversal"
+      ],
+      "attempts": 14,
+      "confidence": 0.95
+    },
+    {
+      "ruleId": "xdr.web_injection.deny",
+      "action": "deny",
+      "sourceIp": "203.0.113.22",
+      "startsAt": "2026-09-27T05:26:02.000Z",
+      "expiresAt": "2026-09-27T05:41:02.000Z",
+      "alertIds": [
+        "wi-08"
+      ],
+      "pattern": "요청 인자의 SQL 구문",
+      "patternIds": [
+        "sql-injection"
+      ],
+      "attempts": 10,
+      "confidence": 0.95
+    }
+  ]
+}
