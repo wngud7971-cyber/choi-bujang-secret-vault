@@ -15,12 +15,19 @@ export function matchPatterns(alert) {
   const accountCount = Math.max(row.accountCount, Number(accountNumber?.[1] ?? accountNumber?.[2] ?? 0));
   const guessing = /한 글자씩|바꿔|같은 간격/u.test(text);
   const pattern = spraying ? patterns['password-spraying'] : guessing ? patterns['password-guessing'] : patterns['repeated-failures'];
-  const signal = auth && (failures || spraying);
+  // Extracted rows have no MITRE metadata. An elevated failure summary still
+  // needs review, but deterministic blocking requires authentication evidence.
+  const signal = (auth && (failures || spraying)) || (failures && row.level > 3);
   const min = pattern.conditions;
+  // The five-field reader omits the raw accounts list. Explicit repeated
+  // spraying in a high-level summary is still evidence, not a missing list.
+  const explicitSpray = spraying && min.allowExplicitRepeatedSpray
+    && /같은 주소/u.test(text) && /여러 계정/u.test(text) && /연속|반복/u.test(text);
+  const manyGuessingAccounts = guessing && failures && accountCount >= (min.minimumAccounts ?? Infinity);
   const minutes = /(\d+)분/u.exec(text);
   const withinWindow = !minutes || Number(minutes[1]) * 60 <= patterns['repeated-failures'].conditions.windowSeconds;
-  const clear = Boolean(signal && withinWindow && row.srcip && row.account && row.timestamp && row.level >= min.minimumLevel
-    && (spraying ? accountCount >= min.minimumAccounts : row.count >= min.minimumFailures));
+  const clear = Boolean(auth && signal && withinWindow && row.srcip && row.account && row.timestamp && row.level >= min.minimumLevel
+    && (spraying ? accountCount >= min.minimumAccounts || explicitSpray : row.count >= min.minimumFailures || manyGuessingAccounts));
   const normal = !signal || (row.level <= 3 && row.count <= 1 && !spraying);
   const seconds = /(\d+)초/u.exec(text);
   return { row, pattern, clear, normal, accountCount,

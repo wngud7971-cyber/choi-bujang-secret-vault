@@ -13,16 +13,16 @@
     {
       "id": "password-spraying",
       "name": "여러 계정에 같은 비밀번호 대입",
-      "conditions": { "minimumAccounts": 8, "minimumLevel": 10 },
-      "find": "같은 주소가 여러 계정에 같은 비밀번호를 반복 대입한다는 Wazuh 신호와 계정 8개 이상의 근거가 함께 있다. 비밀번호 원문은 수집하지 않는다.",
+      "conditions": { "minimumAccounts": 8, "minimumLevel": 10, "allowExplicitRepeatedSpray": true },
+      "find": "높은 수준의 Wazuh 경보가 같은 비밀번호를 계정 8개 이상에 대입했거나, 같은 주소에서 여러 계정에 연속·반복 대입했다고 명시한다. 비밀번호 원문은 수집하지 않는다.",
       "evidence": "MITRE ATT&CK T1110.003: 한 비밀번호 또는 소수의 비밀번호를 여러 계정에 대입하는 Password Spraying을 설명한다.",
       "source": "https://attack.mitre.org/techniques/T1110/003/"
     },
     {
       "id": "password-guessing",
       "name": "계정별 비밀번호 추측 반복",
-      "conditions": { "minimumFailures": 20, "minimumLevel": 10 },
-      "find": "비밀번호를 바꾸어 가며 반복 실패하거나 여러 계정을 규칙적인 간격으로 시도하며, 실패 20건 이상과 높은 경보 수준이 함께 있다.",
+      "conditions": { "minimumFailures": 20, "minimumAccounts": 20, "minimumLevel": 10 },
+      "find": "비밀번호를 바꾸어 가며 실패 20건 이상이 있거나, 규칙적인 간격으로 계정 20개 이상에 로그인 실패를 넣었다는 설명과 높은 경보 수준이 함께 있다.",
       "evidence": "MITRE ATT&CK T1110.001: 계정 비밀번호를 반복 또는 체계적으로 추측하여 인증을 시도하는 Password Guessing을 설명한다.",
       "source": "https://attack.mitre.org/techniques/T1110/001/"
     }
