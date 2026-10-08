@@ -1,6 +1,6 @@
 // Official HTTP contract: https://docs.typesafe.ai/api
 export const JEV_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
-const PATTERNS = new Set(['sql-injection', 'script-injection', 'path-traversal']);
+const PATTERNS = new Set(['sql-injection', 'script-injection', 'path-traversal', 'command-injection']);
 const count = value => Number.isInteger(value) && value >= 0 && value <= 1_000_000 ? value : null;
 
 export async function askJev(summary, { signal, apiKey = globalThis.process?.env?.TYPESAFE_API_KEY,
@@ -14,6 +14,7 @@ export async function askJev(summary, { signal, apiKey = globalThis.process?.env
     attempts: count(summary.attempts), repeatedSource: summary.repeatedSource === true,
     sqlSyntax: summary.sqlSyntax === true, scriptTag: summary.scriptTag === true,
     repeatedParentSegments: summary.repeatedParentSegments === true,
+    commandSyntax: summary.commandSyntax === true,
     tutorialContext: summary.tutorialContext === true, deniedSignal: summary.deniedSignal === true,
     separatorOnly: summary.separatorOnly === true, successAfterAttempt: summary.successAfterAttempt === true,
     unusualLengthOnly: summary.unusualLengthOnly === true };
@@ -22,7 +23,7 @@ export async function askJev(summary, { signal, apiKey = globalThis.process?.env
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({ model: 'jev-latest', state, questions: { web_injection: {
       type: 'noul',
-      instructions: 'Is this web activity a malicious SQL injection, script injection, or path traversal attempt in the investigation context of MITRE ATT&CK T1190? Judge only the supplied facts. Candidate labels and high rule levels are hypotheses, not proof. A separator alone, a SQL/script course title, a long URL, a single quote, or an ordinary relative path is insufficient. Do not invent missing SQL syntax, tags, traversal, or repeated-source evidence. Tutorial context and an explicit absence of attack markers can be benign.',
+      instructions: 'Is this web activity a malicious SQL injection, script injection, command injection, or path traversal attempt in the investigation context of MITRE ATT&CK T1190? Judge only the supplied facts. Candidate labels and high rule levels are hypotheses, not proof. A separator alone, a SQL/script course title, a long URL, a single quote, or an ordinary relative path is insufficient. Do not invent missing command or SQL syntax, tags, traversal, or repeated-source evidence. Tutorial context and an explicit absence of attack markers can be benign.',
       criteria: { true: 'Evidence supports a malicious injection or traversal attempt.',
         false: 'Benign web activity, tutorial terms, or insufficient evidence of malicious injection or traversal.' },
     } } }),
