@@ -1,9 +1,9 @@
-// ALEPH SDP 엔진이 확인한 요청만 받는 학생 판정기 시작점입니다.
-// 6단계부터 규칙을 하나씩 추가합니다. 이 기본 응답은 모든 요청을 거부합니다.
+// ALEPH SDP 엔진이 신원·기기·경로를 확인한 요청만 받습니다.
+// 등록 기기 기본 규칙 앞에 만료되는 XDR 거부 검사를 추가합니다.
 // 요청 본문의 userId, role, 기기 키, 토큰을 별도로 믿거나 저장하지 마세요.
 import { activeXdrRule, RULE_ID as XDR_RULE_ID } from './xdr-policy.mjs';
 
-export const RULE_IDS = Object.freeze(['starter.deny', XDR_RULE_ID]);
+export const RULE_IDS = Object.freeze(['device_registered', XDR_RULE_ID]);
 
 export async function decide(request) {
   const xdrRule = await activeXdrRule();
@@ -12,16 +12,17 @@ export async function decide(request) {
       schema: 'aleph.decision.v1',
       requestId: request.requestId,
       decision: 'deny',
-      // Keep the existing engine-compatible denial code; ruleIds identify XDR.
+      // Retain the known engine-compatible code; the rule ID identifies XDR.
       reasonCode: 'starter_not_ready',
       ruleIds: [XDR_RULE_ID],
     };
   }
+  const registered = request.deviceRegistered === true;
   return {
     schema: 'aleph.decision.v1',
     requestId: request.requestId,
-    decision: 'deny',
-    reasonCode: 'starter_not_ready',
-    ruleIds: [RULE_IDS[0]],
+    decision: registered ? 'allow' : 'deny',
+    reasonCode: registered ? 'approved' : 'device_not_registered',
+    ruleIds: ['device_registered'],
   };
 }

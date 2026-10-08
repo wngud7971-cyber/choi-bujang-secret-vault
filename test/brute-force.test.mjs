@@ -10,6 +10,7 @@ import { runXdr } from '../scripts/xdr-run.mjs';
 import { decide as original } from '../src/decider.mjs';
 import { createZtnaConnection } from '../src/ztna.mjs';
 import { askJev, JEV_ENDPOINT } from '../xdr/brute-force/jev.mjs';
+import { fixtureRequests } from '../scripts/fixture-7.mjs';
 
 const root = new URL('../', import.meta.url);
 const fixture = JSON.parse(await readFile(new URL('../xdr/fixtures/brute-force.json', import.meta.url)));
@@ -189,6 +190,8 @@ test('실제 실행기의 처리 후 연결이 result·규칙·안전한 추가 
     assert.equal(verification.normalBlocked + verification.normalDenied + verification.ambiguousBlocked, 0);
     assert.equal(verification.clearAttacksDenied, 10);
     assert.equal(verification.normalPassedToExistingPolicy, 9);
+    assert.equal(verification.normalAllowed, 9);
+    assert.equal(verification.normalXdrDenied, 0);
     assert.match(verification.connection, /src\/decider\.mjs/u);
     assert.deepEqual(verification.jev, { reviewsRequested: 9, responsesReceived: 0, fallbackAlerts: 9 });
     const lines = (await readFile(join(dir, 'xdr', 'alerts.log'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
@@ -272,17 +275,21 @@ test('실제 판정기 연결은 헤더를 신뢰하지 않고 동시 요청의 
     await new Promise(resolve => setTimeout(resolve, 2));
     return document;
   }, clock: () => alert.timestamp });
-  const request = { schema: 'aleph.decision.v1', requestId: 'concurrent-fixture' };
+  const request = fixtureRequests().normal;
   const inputs = Array.from({ length: 20 }, (_, n) => n % 2 === 0
     ? { socket: { remoteAddress: `::ffff:${alert.data.srcip}` } }
     : { socket: { remoteAddress: '192.0.2.60' }, headers: { 'x-forwarded-for': alert.data.srcip } });
   const results = await Promise.all(inputs.map(transport => connected(request, transport)));
   for (let n = 0; n < results.length; n += 1) {
-    assert.deepEqual(results[n].ruleIds, n % 2 === 0 ? [RULE_ID] : ['starter.deny']);
-    assert.equal(results[n].reasonCode, 'starter_not_ready');
+    assert.deepEqual(results[n].ruleIds, n % 2 === 0 ? [RULE_ID] : ['device_registered']);
+    assert.equal(results[n].decision, n % 2 === 0 ? 'deny' : 'allow');
+    assert.equal(results[n].reasonCode, n % 2 === 0 ? 'starter_not_ready' : 'approved');
     assert.deepEqual(Object.keys(results[n]).sort(), ['decision', 'reasonCode', 'requestId', 'ruleIds', 'schema']);
   }
   const expired = createZtnaConnection({ rules: async () => document, clock: () => document.rules[0].expiresAt });
-  assert.deepEqual((await expired(request, inputs[0])).ruleIds, ['starter.deny']);
-  assert.deepEqual((await original(request)).ruleIds, ['starter.deny']);
+  const released = await expired(request, inputs[0]);
+  assert.deepEqual(released.ruleIds, ['device_registered']);
+  assert.equal(released.decision, 'allow');
+  assert.equal((await original(request)).decision, 'allow');
+  assert.equal((await expired({ ...request, deviceRegistered: false }, inputs[0])).decision, 'deny');
 });

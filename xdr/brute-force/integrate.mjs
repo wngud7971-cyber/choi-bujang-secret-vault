@@ -85,21 +85,24 @@ export async function afterRun({ root, alerts, decisions, jev = null }) {
     transportResults.push({ alertId: row.id, xdrDenied: response.ruleIds.includes(RULE_ID),
       decision: response.decision, ruleIds: response.ruleIds });
   }
-  const normalDenied = normal.filter(alert => transportResults.some(item => item.alertId === safeId(alert.id) && item.xdrDenied));
+  const normalDenied = normal.filter(alert => transportResults.some(item => item.alertId === safeId(alert.id) && item.decision === 'deny'));
+  const normalAllowed = normal.filter(alert => transportResults.some(item => item.alertId === safeId(alert.id) && item.decision === 'allow'));
+  const normalXdrDenied = normal.filter(alert => transportResults.some(item => item.alertId === safeId(alert.id) && item.xdrDenied));
   const clear = alerts.filter(alert => classify(alert).clear);
   const clearDenied = clear.filter(alert => transportResults.some(item => item.alertId === safeId(alert.id) && item.xdrDenied));
   const verification = { schema: 'aleph.xdr.verification.v1', inputAlerts: alerts.length,
     clearAttacks: clear.length, clearAttacksDenied: clearDenied.length,
     normalEvents: normal.length, normalBlocked: normalBlocked.length, normalDenied: normalDenied.length,
+    normalAllowed: normalAllowed.length, normalXdrDenied: normalXdrDenied.length,
     ambiguousBlocked: decisions.filter(item => item.action === 'block' && item.confidence < 0.85).length,
     jevConfirmedBlocks: alerts.filter(alert => !classify(alert).clear)
       .filter(alert => decisions.some(item => item.alertId === safeId(alert.id) && item.action === 'block')).length,
-    normalPassedToExistingPolicy: normal.length - normalDenied.length,
+    normalPassedToExistingPolicy: normal.length - normalXdrDenied.length,
     expiresAfterSeconds: TTL_MS / 1000, mode: 'fixture-replay',
     connection: 'src/ztna.mjs -> src/decider.mjs -> src/xdr-policy.mjs',
     jev,
   };
   await writeFile(join(dir, 'verification.json'), `${JSON.stringify(verification, null, 2)}\n`, 'utf8');
   if (verification.normalBlocked || verification.normalDenied || verification.ambiguousBlocked
-    || clearDenied.length !== clear.length) throw new Error('XDR 재현 검사 실패');
+    || normalAllowed.length !== normal.length || clearDenied.length !== clear.length) throw new Error('XDR 재현 검사 실패');
 }
