@@ -22,7 +22,13 @@ export function matchPatterns(alert) {
   const clear = Boolean(signal && withinWindow && row.srcip && row.account && row.timestamp && row.level >= min.minimumLevel
     && (spraying ? accountCount >= min.minimumAccounts : row.count >= min.minimumFailures));
   const normal = !signal || (row.level <= 3 && row.count <= 1 && !spraying);
-  return { row, pattern, clear, normal };
+  const seconds = /(\d+)초/u.exec(text);
+  return { row, pattern, clear, normal, accountCount,
+    windowSeconds: minutes ? Number(minutes[1]) * 60 : seconds ? Number(seconds[1]) : null,
+    successAfterFailures: /뒤(?:에)?\s*성공|그 뒤 성공/u.test(text),
+    unusualSource: /평소와 다른/u.test(text), irregularIntervals: /고르지/u.test(text),
+    passwordChange: /비밀번호 변경 화면/u.test(text), afterLockout: /잠금 뒤/u.test(text),
+  };
 }
 
 export function correlateAlert(alert, recent) {
@@ -45,29 +51,38 @@ export function correlateAlert(alert, recent) {
 
 export function createDecider({ jev = askJev, timeoutMs = 1500 } = {}) {
   const recent = [];
-  return async function decide(alert) {
+  const usage = { reviewsRequested: 0, responsesReceived: 0, fallbackAlerts: 0 };
+  const decide = async function decide(alert) {
     recent.push(alert);
     if (recent.length > 2048) recent.shift();
     // Never add summarized Wazuh counts together or count duplicate events twice.
     const match = matchPatterns(correlateAlert(alert, recent));
     if (match.normal) return result(0.1, '해당 없음');
     if (match.clear) return result(0.95, match.pattern.name);
+    usage.reviewsRequested += 1;
     const controller = new AbortController();
     let timer;
     try {
       // Send only numbers and pattern identifiers, no original logs, accounts, IPs or passwords.
       const confidence = await Promise.race([
         Promise.resolve().then(() => jev({ schema: 'aleph.xdr.jev.v1', pattern: match.pattern.id,
-          level: match.row.level, failures: match.row.count, accountCount: match.row.accountCount,
+          level: match.row.level, failures: match.row.count, accountCount: match.accountCount,
+          windowSeconds: match.windowSeconds, successAfterFailures: match.successAfterFailures,
+          unusualSource: match.unusualSource, irregularIntervals: match.irregularIntervals,
+          passwordChange: match.passwordChange, afterLockout: match.afterLockout,
         }, { signal: controller.signal })),
         new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('jev_timeout')); }, timeoutMs); }),
       ]);
       if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) throw new Error('jev_invalid_response');
+      usage.responsesReceived += 1;
       return result(confidence, match.pattern.name);
     } catch {
+      usage.fallbackAlerts += 1;
       return result(0.5, match.pattern.name);
     } finally { clearTimeout(timer); }
   };
+  decide.getReviewStats = () => ({ ...usage });
+  return decide;
 }
 
 export const decide = createDecider();

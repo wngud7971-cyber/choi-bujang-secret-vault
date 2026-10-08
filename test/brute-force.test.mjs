@@ -9,7 +9,7 @@ import { makeDenyRules, checkSource, withXdr, TTL_MS, RULE_ID } from '../xdr/bru
 import { runXdr } from '../scripts/xdr-run.mjs';
 import { decide as original } from '../src/decider.mjs';
 import { createZtnaConnection } from '../src/ztna.mjs';
-import { askJev } from '../xdr/brute-force/jev.mjs';
+import { askJev, JEV_ENDPOINT } from '../xdr/brute-force/jev.mjs';
 
 const root = new URL('../', import.meta.url);
 const fixture = JSON.parse(await readFile(new URL('../xdr/fixtures/brute-force.json', import.meta.url)));
@@ -49,7 +49,11 @@ test('시험 경보: 명확 10차단·애매 9알림·정상 9기록, Jev는 애
   let calls = 0;
   const decide = createDecider({ jev: summary => {
     calls += 1;
-    assert.deepEqual(Object.keys(summary), ['schema', 'pattern', 'level', 'failures', 'accountCount']);
+    assert.equal(typeof summary.pattern, 'string');
+    assert.equal(typeof summary.successAfterFailures, 'boolean');
+    assert.ok(!Object.hasOwn(summary, 'srcip'));
+    assert.ok(!Object.hasOwn(summary, 'account'));
+    assert.ok(!Object.hasOwn(summary, 'description'));
     throw new Error('unavailable');
   } });
   const actions = [];
@@ -186,30 +190,38 @@ test('실제 실행기의 처리 후 연결이 result·규칙·안전한 추가 
     assert.equal(verification.clearAttacksDenied, 10);
     assert.equal(verification.normalPassedToExistingPolicy, 9);
     assert.match(verification.connection, /src\/decider\.mjs/u);
+    assert.deepEqual(verification.jev, { reviewsRequested: 9, responsesReceived: 0, fallbackAlerts: 9 });
     const lines = (await readFile(join(dir, 'xdr', 'alerts.log'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     assert.ok(lines.length >= 38);
     for (const line of lines) assert.deepEqual(Object.keys(line), ['timestamp', 'alertId', 'action', 'confidence', 'reason']);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
-test('Jev HTTPS 어댑터의 JSON 확신도가 판단·거부 규칙·실제 판정기로 이어집니다', async () => {
+test('공식 Jev 요청·Noul 응답이 판단·거부 규칙·실제 판정기로 이어집니다', async () => {
   const alert = copy(fixture.alerts[10]);
   let calls = 0;
   const jev = summary => askJev(summary, {
-    endpoint: 'https://jev-adapter.example.invalid/review',
     apiKey: 'test-value',
     fetchImpl: async (url, options) => {
       calls += 1;
-      assert.equal(url.protocol, 'https:');
+      assert.equal(url.href, JEV_ENDPOINT);
       assert.equal(options.method, 'POST');
       assert.equal(options.headers.Authorization, 'Bearer test-value');
       const body = JSON.parse(options.body);
-      assert.equal(body.pattern, 'repeated-failures');
+      assert.equal(body.model, 'jev-latest');
+      assert.equal(body.state.pattern, 'repeated-failures');
+      assert.equal(body.state.successAfterFailures, true);
+      assert.equal(body.questions.brute_force.type, 'noul');
+      assert.match(body.questions.brute_force.instructions, /T1110/u);
       for (const value of [alert.id, alert.data.srcip, alert.data.srcuser, alert.rule.description]) assert.ok(!options.body.includes(value));
-      return new Response(JSON.stringify({ confidence: 0.9 }));
+      return new Response(JSON.stringify({ model: 'jev-1.13.0',
+        answers: { brute_force: { type: 'noul', noul: 0.9 } },
+        usage: { input_tokens: 100, output_tokens: 10 },
+      }));
     },
   });
-  const decision = { alertId: alert.id, ...await createDecider({ jev })(alert) };
+  const decide = createDecider({ jev });
+  const decision = { alertId: alert.id, ...await decide(alert) };
   assert.equal(decision.action, 'block');
   const document = makeDenyRules([alert], [decision]);
   assert.equal(document.rules.length, 1);
@@ -219,23 +231,38 @@ test('Jev HTTPS 어댑터의 JSON 확신도가 판단·거부 규칙·실제 판
   assert.deepEqual(response.ruleIds, [RULE_ID]);
   assert.equal(response.decision, 'deny');
   assert.equal(calls, 1);
+  assert.deepEqual(decide.getReviewStats(), { reviewsRequested: 1, responsesReceived: 1, fallbackAlerts: 0 });
 });
 
 test('Jev 미설정·HTTP 오류·잘못된 JSON은 안전한 알림으로 처리됩니다', async () => {
   const alert = fixture.alerts[10];
   const cases = [
-    { endpoint: '' },
-    { endpoint: 'http://untrusted.example.invalid' },
-    { endpoint: 'https://untrusted.example.invalid/?secret=value' },
-    { endpoint: 'https://jev.example.invalid', fetchImpl: async () => new Response('', { status: 503 }) },
-    { endpoint: 'https://jev.example.invalid', fetchImpl: async () => new Response('not-json') },
-    { endpoint: 'https://jev.example.invalid', fetchImpl: async () => new Response(JSON.stringify({ confidence: '0.9' })) },
+    { apiKey: '' },
+    { apiKey: ' ' },
+    { apiKey: 'invalid\nheader' },
+    { apiKey: 'test-value', fetchImpl: async () => new Response('', { status: 503 }) },
+    { apiKey: 'test-value', fetchImpl: async () => new Response('not-json') },
+    { apiKey: 'test-value', fetchImpl: async () => new Response(JSON.stringify({ confidence: 0.9 })) },
+    { apiKey: 'test-value', fetchImpl: async () => new Response(JSON.stringify({ answers: { brute_force: { type: 'noul', noul: '0.9' } } })) },
+    { apiKey: 'test-value', fetchImpl: async () => new Response(JSON.stringify({ answers: { brute_force: { type: 'noul', noul: 1.2 } } })) },
   ];
   for (const options of cases) {
     const out = await createDecider({ jev: summary => askJev(summary, options) })(alert);
     assert.equal(out.action, 'alert');
     assert.equal(out.confidence, 0.5);
   }
+});
+
+test('공식 Jev의 공격 확률만 사용하며 다른 확신도와 민감한 입력은 제외합니다', async () => {
+  const summary = { pattern: 'repeated-failures', level: 6, failures: 4, accountCount: 1,
+    successAfterFailures: true, password: 'private-value', srcip: '192.0.2.10', account: 'user01' };
+  const confidence = await askJev(summary, { apiKey: 'test-value', fetchImpl: async (_, options) => {
+    for (const value of ['private-value', '192.0.2.10', 'user01']) assert.ok(!options.body.includes(value));
+    return new Response(JSON.stringify({ confidence: 0.99,
+      answers: { brute_force: { type: 'noul', noul: 0.1 }, other: { type: 'choice', confidence: 0.99 } },
+    }));
+  } });
+  assert.equal(confidence, 0.1);
 });
 
 test('실제 판정기 연결은 헤더를 신뢰하지 않고 동시 요청의 주소를 분리합니다', async () => {

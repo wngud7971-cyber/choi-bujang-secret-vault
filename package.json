@@ -10,7 +10,7 @@
     "decider:test": "node scripts/decider-test.mjs",
     "detect:test": "node scripts/detect-test.mjs",
     "fixture:7": "node scripts/fixture-7.mjs",
-    "xdr:run": "node scripts/xdr-run.mjs"
+    "xdr:run": "node --env-file-if-exists=.env scripts/xdr-run.mjs"
   },
   "engines": {
     "node": ">=22"

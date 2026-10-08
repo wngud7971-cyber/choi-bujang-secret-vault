@@ -11,5 +11,10 @@
   "normalPassedToExistingPolicy": 9,
   "expiresAfterSeconds": 900,
   "mode": "fixture-replay",
-  "connection": "src/ztna.mjs -> src/decider.mjs -> src/xdr-policy.mjs"
+  "connection": "src/ztna.mjs -> src/decider.mjs -> src/xdr-policy.mjs",
+  "jev": {
+    "reviewsRequested": 9,
+    "responsesReceived": 9,
+    "fallbackAlerts": 0
+  }
 }

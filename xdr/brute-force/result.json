@@ -64,56 +64,56 @@
     },
     {
       "alertId": "bf-11",
-      "action": "alert",
-      "confidence": 0.5,
+      "action": "record",
+      "confidence": 0.17,
       "reason": "동일 주소·계정의 로그인 실패 연속"
     },
     {
       "alertId": "bf-12",
-      "action": "alert",
-      "confidence": 0.5,
+      "action": "record",
+      "confidence": 0.24,
       "reason": "동일 주소·계정의 로그인 실패 연속"
     },
     {
       "alertId": "bf-13",
       "action": "alert",
-      "confidence": 0.5,
+      "confidence": 0.55,
       "reason": "동일 주소·계정의 로그인 실패 연속"
     },
     {
       "alertId": "bf-14",
-      "action": "alert",
-      "confidence": 0.5,
+      "action": "record",
+      "confidence": 0.35,
       "reason": "동일 주소·계정의 로그인 실패 연속"
     },
     {
       "alertId": "bf-15",
-      "action": "alert",
-      "confidence": 0.5,
+      "action": "record",
+      "confidence": 0.26,
       "reason": "동일 주소·계정의 로그인 실패 연속"
     },
     {
       "alertId": "bf-16",
-      "action": "alert",
-      "confidence": 0.5,
+      "action": "record",
+      "confidence": 0.16,
       "reason": "동일 주소·계정의 로그인 실패 연속"
     },
     {
       "alertId": "bf-17",
-      "action": "alert",
-      "confidence": 0.5,
+      "action": "record",
+      "confidence": 0.18,
       "reason": "동일 주소·계정의 로그인 실패 연속"
     },
     {
       "alertId": "bf-18",
-      "action": "alert",
-      "confidence": 0.5,
+      "action": "record",
+      "confidence": 0.42,
       "reason": "동일 주소·계정의 로그인 실패 연속"
     },
     {
       "alertId": "bf-19",
-      "action": "alert",
-      "confidence": 0.5,
+      "action": "record",
+      "confidence": 0.23,
       "reason": "동일 주소·계정의 로그인 실패 연속"
     },
     {
@@ -173,7 +173,7 @@
   ],
   "counts": {
     "block": 10,
-    "alert": 9,
-    "record": 9
+    "alert": 1,
+    "record": 17
   }
 }
