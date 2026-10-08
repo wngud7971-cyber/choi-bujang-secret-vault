@@ -6,6 +6,8 @@
   "normalEvents": 9,
   "normalBlocked": 0,
   "normalDenied": 0,
+  "normalAllowed": 9,
+  "normalXdrDenied": 0,
   "ambiguousBlocked": 0,
   "jevConfirmedBlocks": 0,
   "normalPassedToExistingPolicy": 9,
