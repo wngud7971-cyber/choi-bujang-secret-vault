@@ -63,6 +63,65 @@ test('시험 경보: 명확 10차단·애매 9알림·정상 9기록, Jev는 애
   assert.equal(calls, 9);
 });
 
+test('원본 경보와 읽기 모듈의 다섯 항목 모두 같은 공격·애매·정상 판단을 합니다', async () => {
+  const rawDecide = createDecider({ jev: unavailable });
+  const extractedDecide = createDecider({ jev: unavailable });
+  const actions = [];
+  for (const alert of fixture.alerts) {
+    const extracted = readAlert(alert);
+    const originalDecision = await rawDecide(alert);
+    const extractedDecision = await extractedDecide(extracted);
+    assert.deepEqual(extractedDecision, originalDecision, alert.id);
+    actions.push(extractedDecision.action);
+  }
+  assert.deepEqual(actions, [...Array(10).fill('block'), ...Array(9).fill('alert'), ...Array(9).fill('record')]);
+  assert.deepEqual(extractedDecide.getReviewStats(), { reviewsRequested: 9, responsesReceived: 0, fallbackAlerts: 9 });
+});
+
+test('읽기 결과의 가명은 유지하고 집계 수가 없는 다섯 항목에서 설명 근거만 사용합니다', async () => {
+  const source = copy(fixture.alerts[0]);
+  source.data.srcuser = 'private@example.invalid';
+  const extracted = readAlert(source);
+  assert.deepEqual(readAlert(extracted), extracted);
+  assert.equal(matchPatterns(extracted).row.count, 48);
+  assert.equal((await createDecider({ jev: unavailable })(extracted)).action, 'block');
+  for (const description of ['로그인이 성공했습니다.', '세션 유지를 확인했습니다.']) {
+    const normal = { ...extracted, description };
+    assert.equal((await createDecider({ jev: unavailable })(normal)).action, 'record');
+  }
+  const weak = { ...extracted, description: '같은 주소에서 로그인 실패 2건입니다.' };
+  assert.equal((await createDecider({ jev: unavailable })(weak)).action, 'alert');
+  const slow = { ...extracted, description: '20분 동안 로그인 실패 48건입니다.' };
+  assert.equal((await createDecider({ jev: unavailable })(slow)).action, 'alert');
+});
+
+test('별도 프로세스에서 키 없이 공개 decide 함수만 실행해도 두 입력 형식을 처리합니다', async () => {
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const run = promisify(execFile);
+  const source = `
+    import { readFile } from 'node:fs/promises';
+    import { decide } from './xdr/brute-force/decide.mjs';
+    import { readAlert } from './xdr/brute-force/read-alerts.mjs';
+    let networkCalls = 0;
+    globalThis.fetch = () => { networkCalls += 1; throw new Error('offline'); };
+    const fixture = JSON.parse(await readFile('xdr/fixtures/brute-force.json', 'utf8'));
+    const counts = { block: 0, alert: 0, record: 0 };
+    for (const alert of fixture.alerts.slice().reverse()) {
+      const out = await decide(process.argv[1] === 'extracted' ? readAlert(alert) : alert);
+      counts[out.action] += 1;
+    }
+    console.log(JSON.stringify({ counts, networkCalls }));
+  `;
+  for (const mode of ['raw', 'extracted']) {
+    const { stdout, stderr } = await run(process.execPath, ['--input-type=module', '--eval', source, mode], {
+      cwd: root, env: { ...process.env, TYPESAFE_API_KEY: '' }, windowsHide: true, timeout: 10000,
+    });
+    assert.equal(stderr, '');
+    assert.deepEqual(JSON.parse(stdout), { counts: { block: 10, alert: 9, record: 9 }, networkCalls: 0 });
+  }
+});
+
 test('경보 번호·주소가 바뀌어도 행동 근거로 판단합니다', async () => {
   const decide = createDecider({ jev: unavailable });
   for (const input of fixture.alerts) {

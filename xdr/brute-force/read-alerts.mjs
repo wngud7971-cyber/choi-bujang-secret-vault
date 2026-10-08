@@ -20,21 +20,26 @@ export function safeId(value) {
 }
 
 export function readAlert(alert) {
-  const account = typeof alert?.data?.srcuser === 'string' ? alert.data.srcuser : '';
+  // Accept the original Wazuh event and this reader's five-field output.
+  const candidate = alert?.data?.srcuser ?? alert?.account;
+  const account = typeof candidate === 'string' ? candidate : '';
+  const sourceIp = alert?.data?.srcip ?? alert?.srcip;
+  const level = alert?.rule?.level ?? alert?.level;
   return {
     timestamp: Number.isFinite(Date.parse(alert?.timestamp)) ? new Date(alert.timestamp).toISOString() : null,
-    srcip: typeof alert?.data?.srcip === 'string' && isIP(alert.data.srcip) ? alert.data.srcip : null,
-    account: /^user\d{1,4}$/u.test(account) ? account : account
+    srcip: typeof sourceIp === 'string' && isIP(sourceIp) ? sourceIp : null,
+    account: /^(?:user\d{1,4}|account-[a-f0-9]{12})$/u.test(account) ? account : account
       ? `account-${createHash('sha256').update(account).digest('hex').slice(0, 12)}` : null,
-    level: Number.isInteger(alert?.rule?.level) && alert.rule.level >= 0 && alert.rule.level <= 16 ? alert.rule.level : 0,
-    description: redact(alert?.rule?.description),
+    level: Number.isInteger(level) && level >= 0 && level <= 16 ? level : 0,
+    description: redact(alert?.rule?.description ?? alert?.description),
   };
 }
 
 // Extra numeric evidence stays inside the analyzer, never in the five-field output.
 export function evidence(alert) {
   const row = readAlert(alert);
-  const count = /^(?:0|[1-9]\d{0,6})$/u.test(String(alert?.data?.count ?? '')) ? Number(alert.data.count) : 0;
+  const count = /^(?:0|[1-9]\d{0,6})$/u.test(String(alert?.data?.count ?? '')) ? Number(alert.data.count)
+    : Number(/실패[^\d]{0,12}(\d{1,7})\s*건/u.exec(row.description)?.[1] ?? 0);
   const accounts = typeof alert?.data?.accounts === 'string' ? alert.data.accounts.split(',') : [];
   return { ...row, id: safeId(alert?.id), count,
     accountCount: new Set(accounts.filter(value => /^user\d{1,4}$/u.test(value))).size,

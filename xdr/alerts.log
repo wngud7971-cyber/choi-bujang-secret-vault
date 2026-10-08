@@ -164,3 +164,15 @@
 {"timestamp":"2026-09-27T05:22:18.000Z","alertId":"bf-09","action":"block","confidence":0.95,"reason":"여러 계정에 같은 비밀번호 대입"}
 {"timestamp":"2026-09-27T06:40:01.000Z","alertId":"bf-10","action":"block","confidence":0.95,"reason":"동일 주소·계정의 로그인 실패 연속"}
 {"timestamp":"2026-09-27T01:02:20.000Z","alertId":"bf-13","action":"alert","confidence":0.56,"reason":"동일 주소·계정의 로그인 실패 연속"}
+{"timestamp":"2026-09-27T00:12:01.000Z","alertId":"bf-01","action":"block","confidence":0.95,"reason":"동일 주소·계정의 로그인 실패 연속"}
+{"timestamp":"2026-09-27T00:12:40.000Z","alertId":"bf-02","action":"block","confidence":0.95,"reason":"여러 계정에 같은 비밀번호 대입"}
+{"timestamp":"2026-09-27T00:14:02.000Z","alertId":"bf-03","action":"block","confidence":0.95,"reason":"계정별 비밀번호 추측 반복"}
+{"timestamp":"2026-09-27T00:20:11.000Z","alertId":"bf-04","action":"block","confidence":0.95,"reason":"동일 주소·계정의 로그인 실패 연속"}
+{"timestamp":"2026-09-27T00:21:00.000Z","alertId":"bf-05","action":"block","confidence":0.95,"reason":"계정별 비밀번호 추측 반복"}
+{"timestamp":"2026-09-27T02:02:15.000Z","alertId":"bf-06","action":"block","confidence":0.95,"reason":"동일 주소·계정의 로그인 실패 연속"}
+{"timestamp":"2026-09-27T02:05:40.000Z","alertId":"bf-07","action":"block","confidence":0.95,"reason":"계정별 비밀번호 추측 반복"}
+{"timestamp":"2026-09-27T04:10:02.000Z","alertId":"bf-08","action":"block","confidence":0.95,"reason":"동일 주소·계정의 로그인 실패 연속"}
+{"timestamp":"2026-09-27T05:22:18.000Z","alertId":"bf-09","action":"block","confidence":0.95,"reason":"여러 계정에 같은 비밀번호 대입"}
+{"timestamp":"2026-09-27T06:40:01.000Z","alertId":"bf-10","action":"block","confidence":0.95,"reason":"동일 주소·계정의 로그인 실패 연속"}
+{"timestamp":"2026-09-27T01:02:20.000Z","alertId":"bf-13","action":"alert","confidence":0.58,"reason":"동일 주소·계정의 로그인 실패 연속"}
+{"timestamp":"2026-09-27T01:15:08.000Z","alertId":"bf-14","action":"alert","confidence":0.5,"reason":"동일 주소·계정의 로그인 실패 연속"}
