@@ -1,4 +1,4 @@
-import config from './patterns.json' with { type: 'json' };
+import config from './patterns.mjs';
 import { evidence } from './read-alerts.mjs';
 import { askJev } from './jev.mjs';
 

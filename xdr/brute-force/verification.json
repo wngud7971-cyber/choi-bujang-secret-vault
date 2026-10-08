@@ -16,7 +16,7 @@
   "connection": "src/ztna.mjs -> src/decider.mjs -> src/xdr-policy.mjs",
   "jev": {
     "reviewsRequested": 9,
-    "responsesReceived": 8,
-    "fallbackAlerts": 1
+    "responsesReceived": 9,
+    "fallbackAlerts": 0
   }
 }
