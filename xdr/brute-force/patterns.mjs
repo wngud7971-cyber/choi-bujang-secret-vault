@@ -1,0 +1,32 @@
+// JavaScript companion of patterns.json for loaders that reject JSON imports.
+// The parity test keeps the catalog, thresholds and MITRE evidence identical.
+export default {
+  schema: 'aleph.xdr.patterns.v1',
+  thresholdNote: '횟수·시간·수준은 이 도구의 보수적인 시험 기준이며 MITRE가 지정한 차단 기준이 아닙니다.',
+  patterns: [
+    {
+      id: 'repeated-failures',
+      name: '동일 주소·계정의 로그인 실패 연속',
+      conditions: { minimumFailures: 20, windowSeconds: 180, minimumLevel: 10 },
+      find: '같은 출발 주소·계정에서 3분 이내 실패 20건 이상을 집계하거나, Wazuh 집계 경보가 같은 반복 실패를 높은 수준으로 보고한다.',
+      evidence: 'MITRE ATT&CK T1110: 서비스 인증에 반복해서 비밀번호를 추측하는 공격을 설명한다.',
+      source: 'https://attack.mitre.org/techniques/T1110/',
+    },
+    {
+      id: 'password-spraying',
+      name: '여러 계정에 같은 비밀번호 대입',
+      conditions: { minimumAccounts: 8, minimumLevel: 10, allowExplicitRepeatedSpray: true },
+      find: '높은 수준의 Wazuh 경보가 같은 비밀번호를 계정 8개 이상에 대입했거나, 같은 주소에서 여러 계정에 연속·반복 대입했다고 명시한다. 비밀번호 원문은 수집하지 않는다.',
+      evidence: 'MITRE ATT&CK T1110.003: 한 비밀번호 또는 소수의 비밀번호를 여러 계정에 대입하는 Password Spraying을 설명한다.',
+      source: 'https://attack.mitre.org/techniques/T1110/003/',
+    },
+    {
+      id: 'password-guessing',
+      name: '계정별 비밀번호 추측 반복',
+      conditions: { minimumFailures: 20, minimumAccounts: 20, minimumLevel: 10 },
+      find: '비밀번호를 바꾸어 가며 실패 20건 이상이 있거나, 규칙적인 간격으로 계정 20개 이상에 로그인 실패를 넣었다는 설명과 높은 경보 수준이 함께 있다.',
+      evidence: 'MITRE ATT&CK T1110.001: 계정 비밀번호를 반복 또는 체계적으로 추측하여 인증을 시도하는 Password Guessing을 설명한다.',
+      source: 'https://attack.mitre.org/techniques/T1110/001/',
+    },
+  ],
+};
