@@ -2,6 +2,14 @@
 
 ## 12단계 · 탈환 작전실
 
+### 배포 제한 수정
+
+12단계 첫 저장점 `8cda497`은 기존 12개 API 함수에 작전실 함수가 추가돼 13개였습니다. 프레임워크 없는 Vercel Hobby 배포는 함수 12개로 제한됩니다([공식 안내](https://vercel.com/docs/functions/runtimes#functions-created-per-deployment)). 별도 `api/operations.js`를 제거하고 코드를 `src/operations.mjs`로 옮겼습니다. `/api/operations`는 `vercel.json`의 rewrite로 기존 `api/ai.js`를 사용합니다. 작전실의 GET 계약과 일반 `/api/ai`의 501 미구현 응답은 유지합니다. 보호 API·기기·신원·DB 권한은 바꾸지 않았습니다.
+
+**ZIP으로 덮어쓸 때 주의:** GitHub 저장소에 남아 있는 예전 `api/operations.js`는 반드시 삭제하고 수정 ZIP의 파일을 반영해야 합니다. ZIP 덮어쓰기만으로 삭제 파일이 반영되지는 않습니다. 삭제 대상은 이 한 파일이며 구현은 `src/operations.mjs`에 보존돼 있습니다. 이후 재배포 Ready → `/aleph.json` 단계 12 → `/operations.html` 화면 → `/api/operations` 200 JSON 순으로 확인합니다. 서버 함수 수 제한 수정은 확인했지만 실제 실패한 배포의 빌드 오류 전문은 읽지 못했으므로 실패 원인을 확정했다고 쓰지 않습니다. 제시된 DEP0169는 런타임 경고이며 직접 작성한 API 소스에 `url.parse()` 호출은 없습니다.
+
+수정 검증: 원본/재작성 URL 양쪽에서 작전실 GET 200·POST 405·추가 쿼리 400, 일반 AI 경로 501 유지, 배포 함수 정확히 12개를 확인했습니다. 전체 로컬 회귀 **210개 통과·실패 0**이며 공개 파일 144개에서 메모/비밀값/이전 공개 표시 0건입니다. 새 Vercel 배포와 경고 발생 지점 확인은 아직 미실행입니다.
+
 이어받기 검사 기준은 `1f5703bca8d0d6956950f86c4b41a57e4ca82f8b`입니다. README의 최신 11단계 기록과 마지막 커밋이 일치했고 작업 트리는 깨끗했습니다. 기존 판정기·탐지/XDR·로그인·기기 서명·자료실 CRUD·권한·복구 사본과 이전 이력을 보존했습니다. 이번 저장점의 최종 커밋은 `git rev-parse HEAD`와 `artifacts/submission.json`의 `commit`으로 확인합니다.
 
 자료실의 **탈환 작전실 · 실제 확인 기록 보기**를 누르거나 `/operations.html`을 엽니다. 화면은 **GET `/api/operations`**의 가린 서버 기록만 읽습니다. 판정 규칙은 실제 모듈의 목록, 복구 기준 버전은 실제 기준 사본의 SHA-256 대조 결과입니다. 구현된 규칙 수는 운영 통과 수가 아닙니다. 운영 탐지 사건·회수 상태·실제 복구는 연결/실행 근거가 없어 `not_run`·수치 `null`로 표시합니다. 가상 메모 본문·사용자 ID·토큰·개인키·원문 헤더는 기록하지 않습니다. 이 공개 요약 API는 메모·DB·승인 권한을 제공하지 않습니다.

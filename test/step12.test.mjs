@@ -2,13 +2,38 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createContext, SourceTextModule } from 'node:vm';
 import { test } from 'node:test';
-import handler, { operationsSnapshot } from '../api/operations.js';
+import handler, { operationsSnapshot } from '../src/operations.mjs';
+import sharedHandler from '../api/ai.js';
 import evidence from '../docs/STEP12_EVIDENCE.json' with { type: 'json' };
 import config from '../aleph.config.json' with { type: 'json' };
 import { summarize, stagePlan, officialPlan } from '../public/operations-model.js';
 import { runReadChecks } from '../src/submission-read-check.mjs';
 import { decide, RULE_IDS } from '../src/decider.mjs';
 import { fixtureRequests } from '../scripts/fixture-7.mjs';
+
+test('shared public function handles both Vercel rewrite URL forms and preserves the AI stub', () => {
+  const response = { setHeader() {}, status(code) { this.code = code; return this; }, json(body) { this.body = body; } };
+  for (const request of [
+    { method: 'GET', url: '/api/operations' },
+    { method: 'GET', url: '/api/operations?__byteback_route=operations', query: { __byteback_route: 'operations' } },
+    { method: 'GET', url: '/api/ai?__byteback_route=operations' },
+    { method: 'GET', url: '/api/ai', query: { __byteback_route: 'operations' } },
+  ]) {
+    sharedHandler(request, response);
+    assert.equal(response.code, 200);
+    assert.equal(response.body.schema, 'byteback.operations.v1');
+    assert.deepEqual(response.body.counts, operationsSnapshot().counts);
+  }
+  sharedHandler({ method: 'GET', url: '/api/ai' }, response);
+  assert.equal(response.code, 501);
+  assert.equal(response.body.error, 'AI_PROXY_NOT_IMPLEMENTED');
+  sharedHandler({ method: 'POST', url: '/api/operations', body: { approved: true } }, response);
+  assert.equal(response.code, 405);
+  for (const url of ['/api/operations?approved=true', '/api/ai?__byteback_route=operations&approved=true']) {
+    sharedHandler({ method: 'GET', url }, response);
+    assert.equal(response.code, 400);
+  }
+});
 
 test('operations API returns the same measured IDs/times as masked records; unknown engine states stay unknown', () => {
   const snapshot = operationsSnapshot();
