@@ -6,10 +6,10 @@ import { decide, RULE_IDS } from './decider.mjs';
 import { checkDecider } from '../scripts/decider-test.mjs';
 import { fixtureRequests } from '../scripts/fixture-7.mjs';
 
-// Stage 6 exercises the engine contract locally, without creating signing keys.
+// Stages 6/7 exercise the engine contract locally, without creating signing keys.
 // Transport authentication and device/subject binding remain the engine's job.
 async function runDeviceChecks(config, app, expectedCommit) {
-  const localResults = await checkDecider({ decide, ruleIds: RULE_IDS });
+  const localResults = await checkDecider({ decide, ruleIds: RULE_IDS, includeStepUp: config.step >= 7 });
   const { deviceRegistered: omitted, ...missingRequest } = fixtureRequests().normal;
   const missing = await decide(missingRequest);
   const missingPassed = missing?.schema === 'aleph.decision.v1'
@@ -39,15 +39,43 @@ async function runDeviceChecks(config, app, expectedCommit) {
   const rejected = anonymous.status === 401 && anonymous.data?.error === 'LOGIN_REQUIRED'
     && Object.keys(anonymous.data).length === 1;
   const matchingDeployment = deployment.status === 200
-    && deployment.data?.schema === 'aleph.defense.deployment.v1' && deployment.data.step === 6
+    && deployment.data?.schema === 'aleph.defense.deployment.v1' && deployment.data.step === config.step
     && deployment.data.repoUrl === config.repoUrl && deployment.data.commit === expectedCommit
     && deployment.data.originalApiUrl === config.originalApiUrl
     && JSON.stringify(deployment.data.allowedRoutes) === JSON.stringify(config.allowedRoutes);
+  const step7Checks = [];
+  if (config.step === 7) {
+    const { normal } = fixtureRequests();
+    const fixtures = [
+      ['region_only_fixture', { ...normal, signals: { ...normal.signals, region: 'foreign' } }, 'allow'],
+      ['missing_connection_signals_fixture', { ...normal, signals: undefined }, 'step_up'],
+      ['untrusted_connection_signals_fixture', { ...normal,
+        signals: { ...normal.signals, source: 'browser' } }, 'step_up'],
+      ['forged_client_headers_fixture', { ...normal, signals: undefined,
+        headers: { 'x-aleph-signals': JSON.stringify(normal.signals), 'x-step-up-verified': 'true' } }, 'step_up'],
+    ];
+    for (const [attackId, input, expected] of fixtures) {
+      const output = await decide(input);
+      step7Checks.push({ attackId, expected: `로컬 가상 요청: ${expected}; 브라우저 헤더를 신뢰하지 않고 지역만으로 차단하지 않음`,
+        observed: `${output?.decision === expected ? '로컬 가상 시험 통과' : '불일치'}: ${output?.decision}·${output?.reasonCode}; 실제 심판 판정 아님` });
+    }
+    step7Checks.push(
+      { attackId: 'step_up_before_relogin_data', expected: '계약이 준비된 실제 엔진에서 추가 확인 전 자료를 반환하지 않아야 함',
+        observed: '미실행: 같은 주체의 새 로그인 시각을 확인하는 엔진 계약·운영 연결이 제공되지 않음. 가상 step_up 판정만 시험' },
+      { attackId: 'step_up_after_relogin_request', expected: '엔진이 요청 이후 새 로그인을 검증한 뒤 새 자료 요청을 다시 판정',
+        observed: '미실행: 새 로그인 시각·추가 확인 요청의 결합 계약이 없음. verified와 authAgeSeconds만으로 허용하지 않음' },
+    );
+  }
+  const fixtureIds = ['registered_device_fixture', 'unregistered_device_fixture',
+    'compound_connection_fixture', 'unverified_relogin_fixture'];
+  const fixtureExpected = ['로컬 가상 요청: 등록 기기는 allow·approved',
+    '로컬 가상 요청: 미등록 기기는 deny·device_not_registered',
+    '로컬 가상 요청: 복합 이상 접속은 step_up·step_up_required',
+    '로컬 가상 요청: 새 로그인 시각 검증 없는 확인 표시는 step_up 유지'];
   return [
     ...localResults.map((result, index) => ({
-      attackId: index === 0 ? 'registered_device_fixture' : 'unregistered_device_fixture',
-      expected: index === 0 ? '로컬 가상 요청: 등록 기기는 allow·approved'
-        : '로컬 가상 요청: 미등록 기기는 deny·device_not_registered',
+      attackId: fixtureIds[index],
+      expected: fixtureExpected[index],
       observed: `${result.passed ? '로컬 가상 시험 통과' : '불일치'}: ${result.decision}·${result.reasonCode}; 실제 심판 판정 아님`,
     })),
     { attackId: 'missing_device_registration_fixture',
@@ -66,15 +94,16 @@ async function runDeviceChecks(config, app, expectedCommit) {
     { attackId: 'public_browser_secret_scan', expected: '기존 화면이 열리고 공개 HTML에 키·JWT·시드 표식이 없어야 함',
       observed: page.status === 0 ? failed : safePage ? 'HTTP 200: 기존 화면 응답과 비밀값 패턴 미검출 확인'
         : `불일치: HTTP ${page.status}, 공개 HTML 점검 실패` },
-    { attackId: 'deployment_stage6_identity', expected: '배포 식별 JSON의 단계·저장소·커밋·원본 API·허용 경로가 저장점과 일치',
+    { attackId: `deployment_stage${config.step}_identity`, expected: '배포 식별 JSON의 단계·저장소·커밋·원본 API·허용 경로가 저장점과 일치',
       observed: deployment.status === 0 ? failed : matchingDeployment
-        ? 'HTTP 200: 6단계 저장점과 배포 식별 정보 일치'
-        : `불일치: HTTP ${deployment.status}, 6단계 저장점 배포 일치 미확인` },
+        ? `HTTP 200: ${config.step}단계 저장점과 배포 식별 정보 일치`
+        : `불일치: HTTP ${deployment.status}, ${config.step}단계 저장점 배포 일치 미확인` },
+    ...step7Checks,
   ];
 }
 
 export async function runAttackChecks(config, { expectedCommit, publicDataApiKey = process.env.SUPABASE_PUBLISHABLE_KEY } = {}) {
-  if (![1, 2, 3, 4, 5, 6].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (![1, 2, 3, 4, 5, 6, 7].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -86,7 +115,7 @@ export async function runAttackChecks(config, { expectedCommit, publicDataApiKey
     throw new Error('aleph.config.json의 실제 배포 주소를 먼저 넣어 주세요.');
   }
   if (typeof config.sampleMarker !== 'string' || !config.sampleMarker) throw new Error('가상 메모의 확인 표시를 넣어 주세요.');
-  if (config.step === 6) return runDeviceChecks(config, app, expectedCommit);
+  if (config.step >= 6) return runDeviceChecks(config, app, expectedCommit);
   if (config.step >= 3) {
     const probeId = randomUUID();
     const notePath = `/api/notes/${probeId}`;

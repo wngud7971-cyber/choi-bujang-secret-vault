@@ -6,7 +6,7 @@ import { checkDecider } from '../scripts/decider-test.mjs';
 import { fixtureRequests } from '../scripts/fixture-7.mjs';
 
 test('6단계 계약: 등록 기기는 허용하고 미등록 기기는 거부합니다', async () => {
-  const results = await checkDecider({ decide, ruleIds: RULE_IDS });
+  const results = await checkDecider({ decide, ruleIds: RULE_IDS, includeStepUp: false });
   assert.equal(results.length, 2);
   assert.ok(results.every(item => item.passed));
 });
