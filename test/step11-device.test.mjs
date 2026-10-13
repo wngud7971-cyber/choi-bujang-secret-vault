@@ -149,8 +149,9 @@ test('stage 11 real WebAuthn signatures, PostgreSQL approval and protected APIs'
         const response = recorder();
         await legacyDeviceApi({ method: action === 'status' ? 'GET' : 'POST', url, body: {},
           query: { action }, headers: { 'content-type': 'application/json' } }, response);
-        assert.equal(response.statusCode, 401, url);
-        assert.equal(response.body.error, 'LOGIN_REQUIRED');
+        assert.equal(response.statusCode, action === 'status' ? 200 : 401, url);
+        if (action === 'status') assert.deepEqual(response.body, { approved: false, state: 'signed_out' });
+        else assert.equal(response.body.error, 'LOGIN_REQUIRED');
       }
     }
     for (const url of ['/api/device/status?action=register', '/api/device/status?action=status&action=status',

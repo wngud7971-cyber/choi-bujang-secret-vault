@@ -7,7 +7,7 @@ import { parseResourceTarget } from './resource-path.mjs';
 const HASH = /^[a-f0-9]{64}$/u;
 const UUID = /^[a-f0-9-]{36}$/u;
 const ID = /^[A-Za-z0-9_-]{1,2048}$/u;
-export const DEVICE_RULE_IDS = Object.freeze(['device.server_approval', 'device.request_binding']);
+export { DEVICE_RULE_IDS } from './policy-rule-ids.mjs';
 export const sha256 = value => createHash('sha256').update(value).digest('hex');
 export function bodyHash(body) {
   return sha256(canonicalBody(typeof body === 'string' ? JSON.parse(body) : body));

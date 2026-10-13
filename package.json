@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:11": "node --test test/step11-device.test.mjs test/auth-ui.test.mjs test/step11-app.test.mjs",
+    "test:11": "node --experimental-vm-modules --test test/step11-device.test.mjs test/auth-ui.test.mjs test/step11-app.test.mjs test/step11-redesign.test.mjs",
     "policy:prepare": "node scripts/prepare-policy-test.mjs",
     "policy:preview": "node scripts/policy-preview.mjs",
     "policy:restore": "node scripts/policy-restore.mjs",
