@@ -9,6 +9,8 @@
     "bundle": "node scripts/bundle.mjs",
     "decider:test": "node scripts/decider-test.mjs",
     "detect:test": "node scripts/detect-test.mjs",
+    "test:9": "node --experimental-vm-modules --test test/step9.test.mjs",
+    "detect:isolation": "node --experimental-vm-modules scripts/detect-isolation-check.mjs",
     "fixture:7": "node scripts/fixture-7.mjs",
     "xdr:run": "node --env-file-if-exists=.env scripts/xdr-run.mjs"
   },
