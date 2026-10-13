@@ -8,6 +8,55 @@ import { fixtureRequests } from '../scripts/fixture-7.mjs';
 import { checkZones } from '../scripts/fixture-8.mjs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { detect } from './detect.mjs';
+import { checkDetection } from '../scripts/detect-test.mjs';
+
+async function runDetectionChecks(config, app, expectedCommit, options) {
+  const prior = await runZoneChecks(config, app, expectedCommit, options);
+  const groups = [
+    ['prior_device_and_step_up_fixtures', ['registered_device_fixture', 'unregistered_device_fixture',
+      'compound_connection_fixture', 'verified_reconfirmation_fixture'], '기존 등록 기기·미등록 거부·복합 추가 확인·가상 재확인 허용'],
+    ['prior_resource_zone_fixtures', ['own_zone_fixture', 'foreign_zone_fixture',
+      'announcement_zone_fixture', 'unknown_route_and_query_fixture'], '기존 본인 구역·교차 구역 거부·공지 쓰기 거부·정확한 경로'],
+  ];
+  const grouped = new Set(groups.flatMap(([, names]) => names));
+  const results = prior.filter(item => !grouped.has(item.attackId));
+  for (const [attackId, names, expected] of groups) {
+    const executed = prior.filter(item => names.includes(item.attackId));
+    results.push({ attackId, expected: `로컬 가상 요청: ${expected}`,
+      observed: `${executed.length === names.length && executed.every(item => item.observed.startsWith('로컬 가상 시험 통과')) ? '로컬 가상 시험 통과' : '불일치'}: ${executed.length}개 점검 묶음; 실제 심판 아님` });
+  }
+  const detection = await checkDetection(detect);
+  for (const [group, expected] of [
+    ['compound', '복합 이상은 확인된 가상 기기 한 개와 burst_read 이유의 회수 제안; 자원 이동에도 같은 기기 단위'],
+    ['normal', '정상·지역 단독·평소 네트워크 폭주·정보 누락·미등록·브라우저 신호는 회수 제안 없음'],
+    ['boundary', '120/121·10분 경계·시간 순서·사용자/기기 분리·중복 요청 처리'],
+  ]) {
+    const executed = detection.filter(item => item.group === group);
+    results.push({ attackId: `detection_${group}_fixtures`, expected: `로컬 가상 사건: ${expected}`,
+      observed: `${executed.length && executed.every(item => item.passed) ? '로컬 탐지 가상 시험 통과' : '불일치'}: ${executed.length}건; 실제 회수·심판 판정 아님` });
+  }
+  try {
+    const runner = new URL('../scripts/detect-isolation-check.mjs', import.meta.url).href;
+    const code = `const {checkDetectionIsolation}=await import(${JSON.stringify(runner)});process.stdout.write(JSON.stringify(await checkDetectionIsolation()));`;
+    const { stdout } = await promisify(execFile)(process.execPath,
+      ['--experimental-vm-modules', '--input-type=module', '-e', code],
+      { windowsHide: true, timeout: 15000, maxBuffer: 4096 });
+    const summary = JSON.parse(stdout);
+    results.push({ attackId: 'detection_isolated_execution', expected: '외부 모듈·파일·네트워크·타이머 없는 격리 환경에서 탐지 실행',
+      observed: `${summary.passed && summary.count === detection.length ? '로컬 탐지 격리 가상 시험 통과' : '불일치'}: ${summary.count}건; 실제 심판 아님` });
+  } catch {
+    results.push({ attackId: 'detection_isolated_execution', expected: '외부 모듈 없는 격리 탐지 실행',
+      observed: '불일치: 격리 실행 실패 또는 시간 초과; 원문·비밀값은 기록하지 않음' });
+  }
+  results.push(
+    { attackId: 'revocation_followup_live', expected: '심판이 실제 회수 후 다음 요청·남은 세션 재접속·다른 자원 이동 거부와 정상 기기 유지 확인',
+      observed: '미실행: 실제 회수·세션 무효화는 심판 담당. 로컬은 별도 propose_revocation 결과만 내며 회수 API·권한 변경 없음' },
+    { attackId: 'revocation_elapsed_time_live', expected: '심판이 첫 의심 사건부터 탐지·기기 회수까지 경과 시간을 측정',
+      observed: '미실행: 운영 사건 전달·회수 집행·시간 측정·확장 입력/기기 대상 응답의 심판 호환성은 재판정에서 확인' },
+  );
+  return results;
+}
 
 async function runZoneChecks(config, app, expectedCommit, { offline = false } = {}) {
   const prior = await runDeviceChecks(config, app, expectedCommit, { offline });
@@ -158,7 +207,7 @@ async function runDeviceChecks(config, app, expectedCommit, { offline = false } 
 }
 
 export async function runAttackChecks(config, { expectedCommit, publicDataApiKey = process.env.SUPABASE_PUBLISHABLE_KEY, offline = false } = {}) {
-  if (![1, 2, 3, 4, 5, 6, 7, 8].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -170,6 +219,7 @@ export async function runAttackChecks(config, { expectedCommit, publicDataApiKey
     throw new Error('aleph.config.json의 실제 배포 주소를 먼저 넣어 주세요.');
   }
   if (typeof config.sampleMarker !== 'string' || !config.sampleMarker) throw new Error('가상 메모의 확인 표시를 넣어 주세요.');
+  if (config.step === 9) return runDetectionChecks(config, app, expectedCommit, { offline });
   if (config.step === 8) return runZoneChecks(config, app, expectedCommit, { offline });
   if (config.step >= 6) return runDeviceChecks(config, app, expectedCommit, { offline });
   if (config.step >= 3) {
