@@ -1,4 +1,5 @@
 import config from '../aleph.config.json' with { type: 'json' };
+import { enforceDeviceRequest } from '../src/device-approval.mjs';
 import { createLoginVerifier } from '../src/verify-login.mjs';
 import { UUID, parseResourceTarget, recordResourceDenial } from '../src/resource-path.mjs';
 import { randomUUID } from 'node:crypto';
@@ -31,6 +32,8 @@ export default async function handler(request, response) {
   let identity;
   try { identity = await verifier(request.headers.authorization); } catch { /* Never print token errors. */ }
   if (!identity) return refuse(401, 'LOGIN_REQUIRED');
+  const device = await enforceDeviceRequest(request, identity, config, base, secretKey);
+  if (!device.ok) return refuse(device.status, device.error);
   const resource = parseResourceTarget(request.url ?? '/api/announcements', 'announcements');
   if (resource.error) return refuse(resource.status, resource.error);
   response.setHeader('X-Resource-ID', resource.resourceId);

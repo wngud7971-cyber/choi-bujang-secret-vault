@@ -1,4 +1,5 @@
 import config from '../aleph.config.json' with { type: 'json' };
+import { enforceDeviceRequest } from '../src/device-approval.mjs';
 import { createLoginVerifier } from '../src/verify-login.mjs';
 import { UUID, recordResourceDenial } from '../src/resource-path.mjs';
 import { isRecoveryIdentity, recoveryRpc, validRecoveryResult } from '../src/note-recovery.mjs';
@@ -33,6 +34,8 @@ export default async function handler(request, response) {
   let identity;
   try { identity = await verifier(authorization); } catch { /* Fail closed. */ }
   if (!identity) return reject(401, 'LOGIN_REQUIRED');
+  const device = await enforceDeviceRequest(request, identity, config, base, secretKey);
+  if (!device.ok) return reject(device.status, device.error);
   if (!isRecoveryIdentity(identity)) return reject(403, 'RECOVERY_FORBIDDEN');
   if (request.method !== 'POST') {
     response.setHeader('Allow', 'POST');

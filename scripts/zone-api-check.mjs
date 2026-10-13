@@ -8,6 +8,7 @@ import notices from '../api/announcements.js';
 // This is a LOCAL synthetic boundary test, never live DB or judge evidence.
 export async function checkResourceApis() {
   const original = { fetch: globalThis.fetch, warn: console.warn,
+    step: config.step,
     url: process.env.SUPABASE_URL, key: process.env.SUPABASE_SECRET_KEY };
   const key = await generateKeyPair('ES256');
   const jwk = { ...await exportJWK(key.publicKey), kid: 'zone-check', alg: 'ES256' };
@@ -81,6 +82,9 @@ export async function checkResourceApis() {
   const check = async (name, callback) => { await callback(); results.push({ name, passed: true }); };
   const patch = { title: 'Synthetic changed title', body: 'Synthetic changed content' };
   try {
+    // Exercise the earlier owner/announcement boundary in isolation; stage 11
+    // has separate real signature and current-handler integration tests.
+    config.step = 10;
     await check('self_crud_and_resource_id', async () => {
       const list = await call(notes, 'a', 'GET', '/api/notes');
       assert.equal(list.statusCode, 200);
@@ -159,6 +163,7 @@ export async function checkResourceApis() {
     });
     return results;
   } finally {
+    config.step = original.step;
     globalThis.fetch = original.fetch;
     console.warn = original.warn;
     for (const [envName, value] of [['SUPABASE_URL', original.url], ['SUPABASE_SECRET_KEY', original.key]]) {
