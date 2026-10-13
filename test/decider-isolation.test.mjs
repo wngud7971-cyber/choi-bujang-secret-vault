@@ -21,7 +21,7 @@ test('기기 판정은 import와 서버 기능 없는 격리 환경에서 실행
     ['number', 'deny', 'device_not_registered'],
   ]);
   assert.deepEqual(result.step7Results.map(item => [item.name, item.decision]), [
-    ['compound', 'step_up'], ['unverified_relogin', 'step_up'],
+    ['compound', 'step_up'], ['verified_fixture', 'allow'],
     ['missing_signals', 'step_up'], ['unavailable', 'allow'],
   ]);
 });

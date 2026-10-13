@@ -101,10 +101,24 @@ test('7단계 규칙: 필수 정보 누락과 위조 출처가 정상 허용으�
   }
   assert.equal(decide({ ...normal, recentEvents: undefined }).decision, 'step_up');
   const connectedHeaders = { 'x-step-up-verified': 'true', 'x-auth-age-seconds': '0' };
-  for (const stepUp of [undefined, { verified: true, authAgeSeconds: 0 },
-    { verified: true, authAgeSeconds: 60 }, { verified: true, authAgeSeconds: 900 },
-    { verified: 'true', authAgeSeconds: '0' }]) {
+  for (const stepUp of [undefined, null, { verified: false, authAgeSeconds: 60 },
+    { verified: true, authAgeSeconds: null }, { verified: true, authAgeSeconds: -1 },
+    { verified: true, authAgeSeconds: 901 }, { verified: true, authAgeSeconds: 0.5 },
+    { verified: true, authAgeSeconds: Infinity }, { verified: true, authAgeSeconds: '60' },
+    { verified: 'true', authAgeSeconds: 60 }, Object.create({ verified: true, authAgeSeconds: 60 })]) {
     assert.equal(decide({ ...suspicious, stepUp, headers: connectedHeaders }).decision, 'step_up');
+  }
+});
+
+test('7단계 재확인: 유효한 엔진 가상 상태만 허용하고 기기·입력 검사를 우회하지 않습니다', () => {
+  const { suspicious } = fixtureRequests();
+  for (const authAgeSeconds of [0, 60, 900]) {
+    const request = { ...suspicious, stepUp: { verified: true, authAgeSeconds } };
+    assert.equal(decide(request).decision, 'allow');
+    assert.equal(decide(request).reasonCode, 'approved');
+    assert.equal(decide({ ...request, deviceRegistered: false }).decision, 'deny');
+    assert.equal(decide({ ...request, signals: undefined }).decision, 'step_up');
+    assert.equal(decide({ ...request, signals: { ...request.signals, source: 'browser' } }).decision, 'step_up');
   }
 });
 
@@ -122,6 +136,9 @@ test('7단계 연결: 정상 헤더로 복합 사건을 덮어쓰지 않으며 X
     }] }) });
   const denied = await blocked(suspicious, { socket: { remoteAddress: '192.0.2.60' } });
   assert.equal(denied.decision, 'deny');
+  const confirmedButBlocked = await blocked({ ...suspicious,
+    stepUp: { verified: true, authAgeSeconds: 60 } }, { socket: { remoteAddress: '192.0.2.60' } });
+  assert.equal(confirmedButBlocked.decision, 'deny');
 });
 
 test('7단계 제출 점검: 가상 결과·배포 불일치·재로그인 미실행을 구분하고 자료를 기록하지 않습니다', async () => {
@@ -152,7 +169,7 @@ test('7단계 제출 점검: 가상 결과·배포 불일치·재로그인 미�
     assert.equal(new Set(results.map(result => result.attackId)).size, 17);
     const find = id => results.find(result => result.attackId === id);
     assert.match(find('compound_connection_fixture').observed, /시험 통과: step_up/u);
-    assert.match(find('unverified_relogin_fixture').observed, /시험 통과: step_up/u);
+    assert.match(find('verified_reconfirmation_fixture').observed, /시험 통과: allow/u);
     assert.match(find('region_only_fixture').observed, /시험 통과: allow/u);
     assert.match(find('forged_client_headers_fixture').observed, /시험 통과: step_up/u);
     for (const id of ['step_up_before_relogin_data', 'step_up_after_relogin_request']) {

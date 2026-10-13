@@ -33,9 +33,9 @@ export async function checkDecider({ decide, ruleIds, includeStepUp = ruleIds?.i
     checks.push(
       { name: '복합 이상 접속', request: suspicious, decision: 'step_up',
         reasonCode: 'step_up_required' },
-      { name: '로그인 시각 검증 없이 확인 표시만 있는 복합 사건', request: { ...suspicious,
+      { name: '엔진 가상 사건에서 재확인한 복합 이상 접속', request: { ...suspicious,
         requestId: randomUUID(), stepUp: { verified: true, authAgeSeconds: 60 } },
-      decision: 'step_up', reasonCode: 'step_up_required' },
+      decision: 'allow', reasonCode: 'approved' },
     );
   }
   const results = [];
