@@ -141,6 +141,26 @@ test('stage 11 real WebAuthn signatures, PostgreSQL approval and protected APIs'
   });
 
   await t.test('current notes API rejects unsigned and changed proofs before DB reads; a correctly signed owner request succeeds', async () => {
+    // Reproduce the deployed dynamic URL form before any login/DB access.
+    for (const action of ['status', 'register', 'finish', 'options', 'verify']) {
+      for (const url of [`/api/device/${action}`, `/api/device/${action}?action=${action}`,
+        `/api/device/[action]?action=${action}`, '/api/device/[action]']) {
+        const response = recorder();
+        await deviceApi({ method: action === 'status' ? 'GET' : 'POST', url,
+          query: { action }, headers: {} }, response);
+        assert.equal(response.statusCode, 401, url);
+        assert.equal(response.body.error, 'LOGIN_REQUIRED');
+      }
+    }
+    for (const url of ['/api/device/status?action=register', '/api/device/status?action=status&action=status',
+      '/api/device/status?approved=true']) {
+      const response = recorder();
+      await deviceApi({ method: 'GET', url, headers: {} }, response);
+      assert.equal(response.statusCode, 400);
+    }
+    const unknown = recorder();
+    await deviceApi({ method: 'POST', url: '/api/device/approve', headers: {} }, unknown);
+    assert.equal(unknown.statusCode, 404);
     const previousFetch = globalThis.fetch;
     const previousUrl = process.env.SUPABASE_URL;
     const previousKey = process.env.SUPABASE_SECRET_KEY;
