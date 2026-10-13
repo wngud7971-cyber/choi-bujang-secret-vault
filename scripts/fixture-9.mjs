@@ -16,6 +16,8 @@ export function reads(count, { intervalMs = 2000, start = START, subjectId = SUB
   }));
 }
 const observe = { action: 'observe' };
+const legacy = events => events.map(({ at, method, subjectId }) => ({ at, method, identity: { sub: subjectId } }));
+const legacyProposal = { action: 'propose_revocation', reasonCode: 'burst_read', subject: SUBJECT };
 export function detectionFixtures() {
   return [
     { name: 'normal_reads', group: 'normal', events: reads(30, { network: 'usual' }), expected: observe },
@@ -46,8 +48,16 @@ export function detectionFixtures() {
     { name: 'unregistered_device', group: 'normal', events: reads(200, { deviceRegistered: false }), expected: observe },
     { name: 'browser_signals', group: 'normal', events: reads(200, { source: 'browser' }), expected: observe },
     { name: 'unknown_network', group: 'normal', events: reads(200, { network: 'unknown', source: 'none' }), expected: observe },
-    { name: 'legacy_subject_only', group: 'normal', events: reads(200).map(({ at, method }) =>
-      ({ at, method, identity: { sub: SUBJECT } })), expected: observe },
+    // These six cases reproduce the published starter's detection exercise,
+    // independent of the optional decision-request metadata used above.
+    { name: 'official_legacy_normal_30', group: 'normal', events: legacy(reads(30)), expected: observe },
+    { name: 'official_legacy_exact_120', group: 'boundary', events: legacy(reads(120)), expected: observe },
+    { name: 'official_legacy_burst_121', group: 'compound', events: legacy(reads(121)), expected: legacyProposal },
+    { name: 'official_legacy_burst_200', group: 'compound', events: legacy(reads(200)), expected: legacyProposal },
+    { name: 'official_legacy_separate_users', group: 'boundary', events: legacy([
+      ...reads(100), ...reads(100, { subjectId: 'other_fixture' }),
+    ]), expected: observe },
+    { name: 'official_legacy_outside_10_minutes', group: 'boundary', events: legacy(reads(200, { intervalMs: 7000 })), expected: observe },
     { name: 'mixed_read_decisions', group: 'compound', events: reads(121).map((event, index) =>
       ({ ...event, decision: ['allow', 'deny', 'step_up'][index % 3] })), expected: proposal() },
     { name: 'resource_switch', group: 'compound', events: reads(121).map((event, index) =>
