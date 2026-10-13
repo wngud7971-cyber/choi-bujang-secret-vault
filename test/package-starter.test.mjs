@@ -15,7 +15,7 @@ test('패키징 함수 기준표를 보존하고 자료 API와 단건 경로만 
   assert.deepEqual(baseline.allowedNew, ['api/ai.js', 'api/threat-intel.js']);
   assert.deepEqual(actual, [...baseline.functions, ...baseline.allowedNew, 'api/notes.js', 'api/notes/[id].js', 'api/auth/[action].js',
     'api/notes/owners/[ownerId]/index.js', 'api/notes/owners/[ownerId]/[id].js',
-    'api/announcements.js', 'api/announcements/[id].js', 'api/restore.js', 'api/device.js', 'api/device/[action].js'].sort());
+    'api/announcements.js', 'api/announcements/[id].js', 'api/restore.js', 'api/device.js', 'api/device/[action].js', 'api/operations.js'].sort());
   const { default: collection } = await import('../api/notes.js');
   const { default: single } = await import('../api/notes/[id].js');
   assert.equal(single, collection);

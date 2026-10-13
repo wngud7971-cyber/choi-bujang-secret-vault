@@ -19,7 +19,7 @@ const bytes = text => {
   return size;
 };
 const parse = text => { try { return JSON.parse(text); } catch { return null; } };
-export async function runReadChecks(config, { expectedCommit, offline = false, fetcher = globalThis.fetch } = {}) {
+export async function runReadChecks(config, { expectedCommit, offline = false, fetcher = globalThis.fetch, onObservation } = {}) {
   const base = new URL(config.publicAppUrl);
   if (base.protocol !== 'https:' || base.username || base.password || base.port || base.search || base.hash
       || base.pathname !== '/' || !base.hostname.endsWith('.vercel.app')) throw new TypeError('invalid_deployment_url');
@@ -55,15 +55,28 @@ export async function runReadChecks(config, { expectedCommit, offline = false, f
   ];
   const output = [];
   for (const [attackId, path, method, expected, headers, ready] of probes) {
-    if (offline) { output.push({ attackId, expected, observed: 'not_run: offline; 공개 요청을 보내지 않음' }); continue; }
+    const observation = { id: attackId, method, path, expected, status: 'not_run',
+      httpStatus: null, responseBytes: null, requestId: null, checkedAt: null, matchesExpected: null };
+    if (offline) {
+      output.push({ attackId, expected, observed: 'not_run: offline; 공개 요청을 보내지 않음' });
+      onObservation?.(observation);
+      continue;
+    }
+    let result;
     try {
       const response = await fetcher(new URL(path, base), { method,
         headers: { accept: 'application/json', ...headers }, redirect: 'error', cache: 'no-store',
         alephEvidence: { caseId: attackId, requestKey: 'read' } });
       const text = method === 'HEAD' ? '' : await response.text();
       if (text.length > 262144) throw new Error('response_too_large');
-      output.push({ attackId, expected, observed: `HTTP ${response.status}; bodyBytes=${bytes(text)}; jsonReady=${ready({ status: response.status, text })}; method=${method}` });
+      const matchesExpected = ready({ status: response.status, text });
+      output.push({ attackId, expected, observed: `HTTP ${response.status}; bodyBytes=${bytes(text)}; jsonReady=${matchesExpected}; method=${method}` });
+      const rawId = response.headers?.get('x-vercel-id');
+      result = { ...observation, status: 'observed', httpStatus: response.status, responseBytes: bytes(text),
+        requestId: typeof rawId === 'string' && /^[A-Za-z0-9:._=-]{1,160}$/u.test(rawId) ? rawId : null,
+        checkedAt: onObservation ? new Date().toISOString() : null, matchesExpected };
     } catch { output.push({ attackId, expected, observed: `not_run: public_request_unavailable; method=${method}` }); }
+    onObservation?.(result ?? observation);
   }
   output.push(
     { attackId: 'device_approved_runtime', expected: '현재 승인 기기의 정상 자료 요청', observed: 'not_run: 실제 승인 기기·로그인·운영 엔진 연결 시험 필요' },

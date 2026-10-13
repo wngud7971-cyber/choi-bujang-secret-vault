@@ -44,7 +44,8 @@ test('build identity uses Vercel Git and deployment metadata', () => {
   assert.equal(deploymentIdentity(env, { ...config, step: 9 }).step, 9);
   assert.equal(deploymentIdentity(env, { ...config, step: 10 }).step, 10);
   assert.equal(deploymentIdentity(env, { ...config, step: 11 }).step, 11);
-  assert.throws(() => deploymentIdentity(env, { ...config, step: 12 }));
+  assert.equal(deploymentIdentity(env, { ...config, step: 12 }).step, 12);
+  assert.throws(() => deploymentIdentity(env, { ...config, step: 13 }));
 });
 
 test('first attack check reads public data.json without credentials', async () => {
