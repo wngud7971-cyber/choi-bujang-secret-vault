@@ -9,7 +9,7 @@ const sessionA = { user: { email: 'Test account A' }, access_token: 'TEST_ONLY_F
 const sessionB = { user: { email: 'Test account B' }, access_token: 'TEST_ONLY_SECOND_TOKEN' };
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
-async function page(initialSession = null) {
+async function page(initialSession = null, autoApprove = true) {
   const makeElement = () => ({
     value: '', textContent: '', hidden: false, disabled: true, dataset: {}, children: [], handlers: {},
     addEventListener(name, fn) { this.handlers[name] = fn; }, setAttribute() {},
@@ -20,10 +20,15 @@ async function page(initialSession = null) {
   const elements = new Map();
   for (const id of ['login-form', 'email', 'password', 'login-button', 'logout-button',
     'signed-in', 'signed-in-email', 'auth-status', 'auth-message', 'notes',
-    'note-editor', 'note-form', 'note-heading', 'note-title', 'note-body', 'note-save', 'note-cancel', 'note-message']) {
+    'note-editor', 'note-form', 'note-heading', 'note-title', 'note-body', 'note-save', 'note-cancel', 'note-message',
+    'device-status', 'device-message', 'request-device', 'check-device']) {
     elements.set('#' + id, makeElement());
   }
   const calls = [];
+  const windowHandlers = {};
+  const navigator = { onLine: true };
+  const removedStorage = [];
+  let deviceReply = { approved: true, state: 'approved' };
   let authCallback;
   let clientOptions;
   const auth = {
@@ -35,22 +40,99 @@ async function page(initialSession = null) {
     AbortController,
     document: { querySelector: name => elements.get(name), createElement: makeElement },
     window: { location: { origin: 'https://student-defense.vercel.app' },
+      navigator,
+      addEventListener: (name, callback) => { windowHandlers[name] = callback; },
+      localStorage: { removeItem: key => removedStorage.push(key) },
+      byteBackDevice: {
+        async check() { return deviceReply; },
+        async register() { return { approved: false, state: 'pending', requestId: 'fixture-request' }; },
+        async proof() { return 'TEST_ONLY_DEVICE_PROOF'; },
+      },
       supabase: { createClient: (url, key, options) => {
         assert.equal(url, 'https://student-defense.vercel.app');
         assert.equal(key, 'server-auth-proxy');
         clientOptions = options;
         return { auth };
       } }, confirm: () => true }, URL,
-    fetch: (url, options) => new Promise(resolve => { calls.push({ url, options, resolve }); }),
+    fetch: (url, options) => url === '/api/device'
+      ? Promise.resolve(Response.json({ approved: false, state: 'verification_required', registeredCount: 1, pendingCount: 0 }))
+      : new Promise(resolve => { calls.push({ url, options, resolve }); }),
   });
   await vm.runInContext('(async () => {' + source + '\n})()', context);
+  const approve = async () => { await elements.get('#check-device').handlers.click(); await flush(); };
+  if (initialSession && autoApprove) await approve();
   return {
     el: id => elements.get('#' + id), calls, clientOptions,
-    change: (event, session) => authCallback(event, session),
+    removedStorage,
+    approve,
+    reply: value => { deviceReply = value; },
+    network: online => { navigator.onLine = online; windowHandlers[online ? 'online' : 'offline'](); },
+    change: async (event, session) => {
+      authCallback(event, session);
+      if (session && autoApprove) await approve();
+    },
   };
 }
 
 test('protected notes UI follows login state and discards late responses', async t => {
+  await t.test('login and requesting registration never show notes; only verified approval opens the room', async () => {
+    const current = await page(sessionA, false);
+    assert.equal(current.calls.length, 0);
+    assert.equal(current.el('note-editor').hidden, true);
+    await current.el('request-device').handlers.click();
+    assert.equal(current.calls.length, 0);
+    assert.match(current.el('device-status').textContent, /승인 대기/u);
+    current.reply({ approved: false, state: 'pending' });
+    await current.approve();
+    assert.equal(current.calls.length, 0);
+    current.reply({ approved: true, state: 'approved' });
+    await current.approve();
+    assert.equal(current.calls.length, 1);
+    current.calls[0].resolve(Response.json([]));
+    await flush();
+    assert.equal(current.el('note-editor').hidden, false);
+    current.reply({ approved: false, state: 'revoked' });
+    await current.approve();
+    assert.equal(current.el('note-editor').hidden, true);
+    assert.match(current.el('device-status').textContent, /회수/u);
+  });
+  await t.test('new sessions remain in memory and only this app legacy session is removed', async () => {
+    const current = await page();
+    assert.equal(current.clientOptions.auth.persistSession, false);
+    assert.deepEqual(current.removedStorage, ['sb-tdltpkfewovnxnxhvbkd-auth-token',
+      'sb-tdltpkfewovnxnxhvbkd-auth-token-code-verifier']);
+  });
+  await t.test('offline clears data and drafts, rejects a late response and reconnects with a new request', async () => {
+    const current = await page(sessionA);
+    current.calls[0].resolve(Response.json([{ id: '1', title: 'Test A', body: 'Synthetic content' }]));
+    await flush();
+    current.el('note-title').value = 'Draft';
+    current.el('note-body').value = 'Synthetic draft';
+    current.network(false);
+    assert.equal(current.el('note-editor').hidden, true);
+    assert.equal(current.el('note-body').value, '');
+    assert.equal(current.el('note-title').value, '');
+    assert.match(current.el('notes').children[0].textContent, /오프라인/u);
+    const count = current.calls.length;
+    current.el('note-form').handlers.submit({ preventDefault() {} });
+    assert.equal(current.calls.length, count);
+    current.network(true);
+    assert.equal(current.calls.length, count);
+    await current.approve();
+    assert.equal(current.calls.length, count + 1);
+    const pending = current.calls.at(-1);
+    current.network(false);
+    assert.equal(pending.options.signal.aborted, true);
+    pending.resolve(Response.json([{ id: '2', title: 'Late', body: 'Synthetic content' }]));
+    await flush();
+    assert.match(current.el('notes').children[0].textContent, /오프라인/u);
+    current.network(true);
+    await current.approve();
+    current.calls.at(-1).resolve(Response.json([]));
+    await flush();
+    assert.equal(current.el('note-editor').hidden, false);
+    assert.match(current.el('notes').children[0].textContent, /내 메모가 아직 없습니다/u);
+  });
   await t.test('Auth transport uses only the server gateway and no real project key is embedded', async () => {
     assert.ok(!/sb_(?:publishable|secret)_[A-Za-z0-9_-]+/u.test(html));
     assert.ok(!/eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/u.test(html));
@@ -69,7 +151,7 @@ test('protected notes UI follows login state and discards late responses', async
     const saved = await page(sessionA);
     assert.equal(saved.calls.length, 1);
     assert.equal(saved.calls[0].url, '/api/notes');
-    assert.deepEqual(Object.keys(saved.calls[0].options.headers), ['Authorization']);
+    assert.deepEqual(Object.keys(saved.calls[0].options.headers), ['Authorization', 'x-byteback-device-proof']);
     assert.equal(saved.calls[0].options.headers.Authorization, 'Bearer ' + sessionA.access_token);
     assert.equal(saved.calls[0].options.cache, 'no-store');
     saved.calls[0].resolve(Response.json([{ id: '1', title: 'Test A', body: 'Synthetic content' }]));
@@ -93,7 +175,7 @@ test('protected notes UI follows login state and discards late responses', async
   await t.test('a previous account response cannot replace the latest account response', async () => {
     const current = await page(sessionA);
     const previous = current.calls[0];
-    current.change('SIGNED_IN', sessionB);
+    await current.change('SIGNED_IN', sessionB);
     assert.equal(current.calls.length, 2);
     current.calls[1].resolve(Response.json([{ id: '2', title: 'Test B', body: 'Synthetic content' }]));
     await flush();
@@ -119,6 +201,7 @@ test('protected notes UI follows login state and discards late responses', async
     current.el('note-title').value = 'Test title';
     current.el('note-body').value = 'Synthetic content';
     submit();
+    await flush();
     assert.equal(current.calls[1].options.method, 'POST');
     assert.equal(current.calls[1].url, '/api/notes');
     assert.deepEqual(JSON.parse(current.calls[1].options.body), { title: 'Test title', body: 'Synthetic content' });
@@ -127,6 +210,7 @@ test('protected notes UI follows login state and discards late responses', async
     current.calls[2].resolve(Response.json([{ id, title: 'Test title', body: 'Synthetic content' }]));
     await flush();
     current.el('notes').children[0].children[2].children[0].handlers.click();
+    await flush();
     assert.equal(current.calls[3].options.method, 'GET');
     assert.equal(current.calls[3].url, '/api/notes/' + id);
     current.calls[3].resolve(Response.json({ id, title: 'Test title', body: 'Synthetic content' }));
@@ -134,6 +218,7 @@ test('protected notes UI follows login state and discards late responses', async
     assert.equal(current.el('note-body').value, 'Synthetic content');
     current.el('note-title').value = 'Updated';
     submit();
+    await flush();
     assert.equal(current.calls[4].options.method, 'PUT');
     assert.equal(current.calls[4].url, '/api/notes/' + id);
     current.calls[4].resolve(Response.json({ id, title: 'Updated', body: 'Synthetic content' }));
@@ -141,6 +226,7 @@ test('protected notes UI follows login state and discards late responses', async
     current.calls[5].resolve(Response.json([{ id, title: 'Updated', body: 'Synthetic content' }]));
     await flush();
     current.el('notes').children[0].children[2].children[1].handlers.click();
+    await flush();
     assert.equal(current.calls[6].options.method, 'DELETE');
     assert.equal(current.calls[6].url, '/api/notes/' + id);
     current.calls[6].resolve(Response.json({ id }));
@@ -158,6 +244,7 @@ test('protected notes UI follows login state and discards late responses', async
     current.el('note-title').value = 'Test';
     current.el('note-body').value = 'Synthetic content';
     current.el('note-form').handlers.submit({ preventDefault() {} });
+    await flush();
     const write = current.calls[1];
     current.change('SIGNED_OUT', null);
     assert.equal(write.options.signal.aborted, true);

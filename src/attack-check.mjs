@@ -12,6 +12,25 @@ import { detect } from './detect.mjs';
 import { checkDetection } from '../scripts/detect-test.mjs';
 import { fileURLToPath } from 'node:url';
 
+async function runAppChecks(config, app, expectedCommit, options) {
+  const checks = await runRecoveryChecks(config, app, expectedCommit, options);
+  let passed = false;
+  try {
+    const testEnv = { ...process.env };
+    delete testEnv.NODE_TEST_CONTEXT;
+    const { stdout } = await promisify(execFile)(process.execPath, ['--test',
+      ...['step11-device.test.mjs', 'auth-ui.test.mjs', 'step11-app.test.mjs']
+        .map(name => fileURLToPath(new URL(`../test/${name}`, import.meta.url)))],
+      { windowsHide: true, timeout: 30000, maxBuffer: 256 * 1024, env: testEnv });
+    passed = /(?:ℹ|#) pass 23\b/u.test(stdout) && /(?:ℹ|#) fail 0\b/u.test(stdout);
+  } catch { /* Never copy test operands, credentials, tokens or signature proofs into a bundle. */ }
+  checks.push({ attackId: 'device_app_local_boundary',
+    expected: '로컬 서명·DB·화면 시험: 승인 대기 차단, 승인 후 정상, 무서명·경로/본문 변경·재사용·회수 거부, 비밀 저장 금지',
+    observed: passed ? '로컬 시험 23개 통과: 고정 API 등록·승인 확인, 실제 서명·임시 PostgreSQL·UI 모의 실행. 운영 인증기·기기 승인·공식 심판 호환 시험은 미실행'
+      : '불일치: 11단계 로컬 시험 미통과. 운영 기기·공식 심판 판정 아님' });
+  return checks;
+}
+
 async function runRecoveryChecks(config, app, expectedCommit, { offline = false } = {}) {
   const previous = await runDetectionChecks(config, app, expectedCommit, { offline });
   const local = previous.filter(item => /fixture|isolated|local_boundary/u.test(item.attackId));
@@ -256,7 +275,7 @@ async function runDeviceChecks(config, app, expectedCommit, { offline = false } 
 }
 
 export async function runAttackChecks(config, { expectedCommit, publicDataApiKey = process.env.SUPABASE_PUBLISHABLE_KEY, offline = false } = {}) {
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -268,6 +287,7 @@ export async function runAttackChecks(config, { expectedCommit, publicDataApiKey
     throw new Error('aleph.config.json의 실제 배포 주소를 먼저 넣어 주세요.');
   }
   if (typeof config.sampleMarker !== 'string' || !config.sampleMarker) throw new Error('가상 메모의 확인 표시를 넣어 주세요.');
+  if (config.step === 11) return runAppChecks(config, app, expectedCommit, { offline });
   if (config.step === 10) return runRecoveryChecks(config, app, expectedCommit, { offline });
   if (config.step === 9) return runDetectionChecks(config, app, expectedCommit, { offline });
   if (config.step === 8) return runZoneChecks(config, app, expectedCommit, { offline });

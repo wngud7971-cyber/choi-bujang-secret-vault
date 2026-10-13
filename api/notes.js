@@ -1,4 +1,5 @@
 import config from '../aleph.config.json' with { type: 'json' };
+import { enforceDeviceRequest } from '../src/device-approval.mjs';
 import { createLoginVerifier } from '../src/verify-login.mjs';
 import { randomUUID } from 'node:crypto';
 import { UUID, parseResourceTarget, recordResourceDenial } from '../src/resource-path.mjs';
@@ -47,6 +48,8 @@ export default async function handler(request, response) {
     return unauthorized(response);
   }
   if (!identity) return unauthorized(response);
+  const device = await enforceDeviceRequest(request, identity, config, new URL(urlValue), secretKey);
+  if (!device.ok) return response.status(device.status).json({ error: device.error });
   const refuse = (status, error) => {
     recordResourceDenial('notes', request.method, error);
     return response.status(status).json({ error });

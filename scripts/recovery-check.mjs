@@ -29,6 +29,7 @@ const root = resolve(import.meta.dirname, '..');
 export async function checkRecovery() {
   const db = await PGlite.create();
   const original = { fetch: globalThis.fetch, warn: console.warn,
+    step: config.step,
     url: process.env.SUPABASE_URL, key: process.env.SUPABASE_SECRET_KEY };
   const results = [];
   const check = async (name, fn) => { await fn(); results.push({ name, passed: true }); };
@@ -72,6 +73,8 @@ export async function checkRecovery() {
   const auditCount = async () => Number((await query('select count(*) as count from public.training_note_recovery_audit'))[0].count);
   const sql = await readFile(resolve(root, 'docs/STEP10_DATABASE.sql'), 'utf8');
   try {
+    // Stage 10 recovery fixture; current stage 11 API proof tests are separate.
+    config.step = 10;
     await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
       create table public.training_notes(id uuid primary key, owner_id uuid not null, title text not null,
         content text not null, position integer not null default 0, created_at timestamptz not null default now());
@@ -285,6 +288,7 @@ export async function checkRecovery() {
     });
     return results;
   } finally {
+    config.step = original.step;
     globalThis.fetch = original.fetch;
     console.warn = original.warn;
     for (const [name, value] of [['SUPABASE_URL', original.url], ['SUPABASE_SECRET_KEY', original.key]]) {

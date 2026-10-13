@@ -82,6 +82,10 @@ try {
     const { RECOVERY_RULE_IDS } = await import(pathToFileURL(join(root, 'src', 'note-recovery.mjs')).href);
     policyRules.push(...RECOVERY_RULE_IDS);
   }
+  if (config.step >= 11) {
+    const { DEVICE_RULE_IDS } = await import(pathToFileURL(join(root, 'src', 'device-approval.mjs')).href);
+    policyRules.push(...DEVICE_RULE_IDS);
+  }
   if (policyRules.length > 80 || policyRules.some(item => typeof item !== 'string'
       || !/^[a-z][a-z0-9_.-]{0,79}$/iu.test(item)) || new Set(policyRules).size !== policyRules.length) {
     fail('src/decider.mjs의 RULE_IDS 이름과 중복을 확인해 주세요.');
