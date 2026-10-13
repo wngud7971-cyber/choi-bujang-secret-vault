@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { UUID } from './resource-path.mjs';
 
-export const RECOVERY_RULE_IDS = Object.freeze(['recovery.verified_backup', 'recovery.judge_b_only', 'recovery.single_note']);
+export { RECOVERY_RULE_IDS } from './policy-rule-ids.mjs';
 export const contentHash = (title, content) => createHash('sha256')
   .update(title, 'utf8').update(Buffer.from([0])).update(content, 'utf8').digest('hex');
 

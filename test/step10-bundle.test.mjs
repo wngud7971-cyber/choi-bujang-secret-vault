@@ -40,10 +40,9 @@ test('10단계 엔진 복구 경로: 정확한 POST만 기존 기기·추가 확
   }
 });
 
-test('11단계 자기 점검은 기존 19개와 실제 로컬 앱 시험을 20개 제한 안에서 기록한다', async () => {
+test('11단계 offline 제출은 로컬 시험이나 네트워크를 실행하지 않고 20개 미실행을 기록한다', async () => {
   const checks = await runAttackChecks({ ...config, step: 11 }, { expectedCommit: 'a'.repeat(40), offline: true });
   assert.equal(checks.length, 20);
-  const app = checks.find(item => item.attackId === 'device_app_local_boundary');
-  assert.match(app.observed, /^로컬 시험 23개 통과/u);
-  assert.match(app.observed, /공식 심판.*미실행/u);
+  assert.ok(checks.every(item => item.observed.startsWith('not_run')));
+  assert.ok(checks.some(item => item.attackId === 'device_signed_path_body_runtime'));
 });
