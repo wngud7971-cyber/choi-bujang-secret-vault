@@ -2,6 +2,14 @@
 
 ## 12단계 · 탈환 작전실
 
+### 실행 기록 대조 수정 · S12_SCREEN_MISMATCH
+
+심판 커밋 `a9f837de9534`의 피드백은 공개 관측 17건의 `observed`에 응답에서 확인할 수 없는 값이 적혔다는 것입니다. 가장 유력한 원인은 `bodyBytes`·`jsonReady`·`method`를 제출 응답 사실처럼 함께 출력한 형식입니다. 수정된 제출 점검은 실제 `response.status`에서 읽은 `HTTP 200`·`HTTP 401` 등의 상태만 `observed`에 넣습니다. 네트워크 실패·운영 미실행은 계속 `not_run`입니다. 요청 메서드, 계산한 크기와 기대 일치 여부는 별도 작전실 진단 정보이며 API 응답의 원래 필드나 심판 통과 결과로 주장하지 않습니다. 응답 오류·배포 불일치 검사 자체는 유지하므로 HTTP 200만으로 성공을 계산하지 않습니다.
+
+2026-10-14 실제 확인: 공개 저장소와 `/aleph.json`은 단계 12·커밋 `a9f837de9534`로 일치했고 작전실 화면과 API 모두 200입니다. 가린 서버 기록의 공개 요청 실측 17·기대 일치 16·불일치 1, 대표 표 실측 5·미실행 17, 공식 41종 모두 미실행 상태를 확인했습니다. 이 기록은 앞서 저장한 관측으로 현재 요청을 재실행한 기록은 아닙니다. 이번 수정은 제출 증거의 출력 형식만 바꾸며 보호 API·판정기·탐지·복구·기기 승인 및 서버 함수 12개 구성을 보존합니다. 재판정 통과 여부는 재제출 뒤 확인합니다.
+
+검증: `node --experimental-vm-modules --test test/step11-redesign.test.mjs test/step12.test.mjs test/package-starter.test.mjs`로 관련 시험 21개 통과·실패 0입니다. 응답에 없는 진단 값이 제출 주장으로 들어가지 않음, 배포 불일치/자료 유출 진단 유지, 미실행 구분, 화면과 가린 기록 수치 일치, 격리된 제출 실행 및 서버 함수 12개를 확인했습니다. 공개 파일 144개의 메모·비밀값 검사도 0건입니다.
+
 ### 배포 제한 수정
 
 12단계 첫 저장점 `8cda497`은 기존 12개 API 함수에 작전실 함수가 추가돼 13개였습니다. 프레임워크 없는 Vercel Hobby 배포는 함수 12개로 제한됩니다([공식 안내](https://vercel.com/docs/functions/runtimes#functions-created-per-deployment)). 별도 `api/operations.js`를 제거하고 코드를 `src/operations.mjs`로 옮겼습니다. `/api/operations`는 `vercel.json`의 rewrite로 기존 `api/ai.js`를 사용합니다. 작전실의 GET 계약과 일반 `/api/ai`의 501 미구현 응답은 유지합니다. 보호 API·기기·신원·DB 권한은 바꾸지 않았습니다.
