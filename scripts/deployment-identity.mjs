@@ -11,7 +11,7 @@ export function deploymentIdentity(env, config) {
   if (env.VERCEL_GIT_PROVIDER !== 'github' || !OWNER.test(owner || '')
       || !REPO.test(repo || '') || repo === '.' || repo === '..'
       || repo.toLowerCase().endsWith('.git') || !SHA.test(commit || '')
-      || !HOST.test(host || '') || ![1, 2, 3, 4, 5].includes(config?.step)
+      || !HOST.test(host || '') || ![1, 2, 3, 4, 5, 6].includes(config?.step)
       || typeof config.judgeIssuer !== 'string'
       || !/^https:\/\/[a-z0-9-]+\.up\.railway\.app\/defense\/judge$/iu.test(config.judgeIssuer)
       || (config.step === 1 && (typeof config.sampleMarker !== 'string'
@@ -25,7 +25,7 @@ export function deploymentIdentity(env, config) {
     commit: commit.toLowerCase(),
     publicAppUrl: `https://${host.toLowerCase()}`,
     judgeIssuer: config.judgeIssuer,
-    ...(config.step === 5 ? { originalApiUrl: config.originalApiUrl, allowedRoutes: config.allowedRoutes } : {}),
+    ...(config.step >= 5 ? { originalApiUrl: config.originalApiUrl, allowedRoutes: config.allowedRoutes } : {}),
     ...(config.step === 1 ? { sampleMarker: config.sampleMarker } : {}),
   };
 }

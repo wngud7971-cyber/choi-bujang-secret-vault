@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { test } from 'node:test';
 
-for (const step of [2, 3, 4, 5]) test(`stage ${step} build removes a stale public marker from data and deployment identity`, async t => {
+for (const step of [2, 3, 4, 5, 6]) test(`stage ${step} build removes a stale public marker from data and deployment identity`, async t => {
   const temporaryRoot = resolve(tmpdir());
   const fixture = await mkdtemp(join(temporaryRoot, 'stage2-build-'));
   t.after(async () => {
@@ -22,7 +22,7 @@ for (const step of [2, 3, 4, 5]) test(`stage ${step} build removes a stale publi
   const config = {
     step, sampleMarker: 'SAMPLE_NOTE_1',
     judgeIssuer: 'https://aleph-judge-production.up.railway.app/defense/judge',
-    ...(step === 5 ? { originalApiUrl: 'https://training-project.supabase.co/rest/v1/training_notes',
+    ...(step >= 5 ? { originalApiUrl: 'https://training-project.supabase.co/rest/v1/training_notes',
       allowedRoutes: ['GET /api/notes', 'POST /api/notes'] } : {}),
   };
   // Simulate an old marker-bearing source and stale public output from stage 1.
@@ -40,7 +40,7 @@ for (const step of [2, 3, 4, 5]) test(`stage ${step} build removes a stale publi
   assert.deepEqual(JSON.parse(await readFile(join(fixture, 'public', 'data.json'), 'utf8')), { notes: [] });
   const identity = JSON.parse(await readFile(join(fixture, 'public', 'aleph.json'), 'utf8'));
   assert.equal(identity.step, step);
-  if (step === 5) {
+  if (step >= 5) {
     assert.equal(identity.originalApiUrl, config.originalApiUrl);
     assert.deepEqual(identity.allowedRoutes, config.allowedRoutes);
   }

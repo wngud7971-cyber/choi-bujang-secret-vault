@@ -2,9 +2,79 @@
 // Never return tokens, private keys, real names, or note bodies.
 import { randomUUID } from 'node:crypto';
 import { generateKeyPair, SignJWT } from 'jose';
+import { decide, RULE_IDS } from './decider.mjs';
+import { checkDecider } from '../scripts/decider-test.mjs';
+import { fixtureRequests } from '../scripts/fixture-7.mjs';
+
+// Stage 6 exercises the engine contract locally, without creating signing keys.
+// Transport authentication and device/subject binding remain the engine's job.
+async function runDeviceChecks(config, app, expectedCommit) {
+  const localResults = await checkDecider({ decide, ruleIds: RULE_IDS });
+  const { deviceRegistered: omitted, ...missingRequest } = fixtureRequests().normal;
+  const missing = await decide(missingRequest);
+  const missingPassed = missing?.schema === 'aleph.decision.v1'
+    && missing.requestId === missingRequest.requestId
+    && Object.keys(missing).sort().join(',') === 'decision,reasonCode,requestId,ruleIds,schema'
+    && missing.decision === 'deny' && missing.reasonCode === 'device_not_registered'
+    && Array.isArray(missing.ruleIds) && missing.ruleIds.includes('device_registered');
+  const request = async path => {
+    try {
+      const response = await fetch(new URL(path, app), {
+        redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(10000),
+      });
+      const data = path === '/' ? await response.text() : await response.json().catch(() => null);
+      return { status: response.status, data };
+    } catch { return { status: 0, data: null }; }
+  };
+  const [page, publicData, anonymous, deployment] = await Promise.all(
+    ['/', '/data.json', '/api/notes', '/aleph.json'].map(request),
+  );
+  const failed = '미확인: 요청 실패 또는 시간 초과';
+  const safePage = page.status === 200 && typeof page.data === 'string'
+    && !/-----BEGIN [A-Z ]*PRIVATE KEY-----|\bsb_(?:secret|publishable)_[A-Za-z0-9_-]{12,}|\bsk-[A-Za-z0-9_-]{20,}|\beyJ[A-Za-z0-9_-]{12,}\.eyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{8,}/u.test(page.data)
+    && !page.data.includes(config.sampleMarker);
+  const empty = publicData.status === 200 && Array.isArray(publicData.data?.notes)
+    && publicData.data.notes.length === 0 && !Object.hasOwn(publicData.data, 'sampleMarker')
+    && !JSON.stringify(publicData.data).includes(config.sampleMarker);
+  const rejected = anonymous.status === 401 && anonymous.data?.error === 'LOGIN_REQUIRED'
+    && Object.keys(anonymous.data).length === 1;
+  const matchingDeployment = deployment.status === 200
+    && deployment.data?.schema === 'aleph.defense.deployment.v1' && deployment.data.step === 6
+    && deployment.data.repoUrl === config.repoUrl && deployment.data.commit === expectedCommit
+    && deployment.data.originalApiUrl === config.originalApiUrl
+    && JSON.stringify(deployment.data.allowedRoutes) === JSON.stringify(config.allowedRoutes);
+  return [
+    ...localResults.map((result, index) => ({
+      attackId: index === 0 ? 'registered_device_fixture' : 'unregistered_device_fixture',
+      expected: index === 0 ? '로컬 가상 요청: 등록 기기는 allow·approved'
+        : '로컬 가상 요청: 미등록 기기는 deny·device_not_registered',
+      observed: `${result.passed ? '로컬 가상 시험 통과' : '불일치'}: ${result.decision}·${result.reasonCode}; 실제 심판 판정 아님`,
+    })),
+    { attackId: 'missing_device_registration_fixture',
+      expected: '로컬 가상 요청: deviceRegistered가 없으면 deny·device_not_registered',
+      observed: `${missingPassed ? '로컬 가상 시험 통과' : '불일치'}: ${missing?.decision}·${missing?.reasonCode}; 실제 심판 판정 아님` },
+    { attackId: 'mtls_without_client_certificate', expected: '실제 릴레이가 클라이언트 인증서 없는 mTLS 요청을 거부',
+      observed: '미실행: 실제 릴레이 공격은 심판이 수행하며 로컬 판정기 시험으로 대신하지 않음' },
+    { attackId: 'device_subject_mismatch', expected: '실제 엔진이 등록 기기와 다른 사용자 토큰의 조합을 거부',
+      observed: '미실행: 기기·사용자 결합 검증은 운영 엔진과 심판이 수행하며 사용자 토큰을 생성하지 않음' },
+    { attackId: 'public_static_note_read', expected: '공개 JSON에 메모와 1단계 확인 표시가 없어야 함',
+      observed: publicData.status === 0 ? failed : empty ? 'HTTP 200: 공개 메모 0건과 확인 표시 제거 확인'
+        : `불일치: HTTP ${publicData.status}, 공개 자료 제거 미확인` },
+    { attackId: 'anonymous_api_note_read', expected: '유효한 로그인 없이 메모를 반환하지 않고 HTTP 401로 거부',
+      observed: anonymous.status === 0 ? failed : rejected ? 'HTTP 401: 자료 없이 무로그인 조회 거부'
+        : `불일치: HTTP ${anonymous.status}, 인증 거부 계약 미확인` },
+    { attackId: 'public_browser_secret_scan', expected: '기존 화면이 열리고 공개 HTML에 키·JWT·시드 표식이 없어야 함',
+      observed: page.status === 0 ? failed : safePage ? 'HTTP 200: 기존 화면 응답과 비밀값 패턴 미검출 확인'
+        : `불일치: HTTP ${page.status}, 공개 HTML 점검 실패` },
+    { attackId: 'deployment_stage6_identity', expected: '배포 식별 JSON의 단계·저장소·커밋·원본 API·허용 경로가 저장점과 일치',
+      observed: deployment.status === 0 ? failed : matchingDeployment
+        ? 'HTTP 200: 6단계 저장점과 배포 식별 정보 일치'
+        : `불일치: HTTP ${deployment.status}, 6단계 저장점 배포 일치 미확인` },
+  ];
+}
 
 export async function runAttackChecks(config, { expectedCommit, publicDataApiKey = process.env.SUPABASE_PUBLISHABLE_KEY } = {}) {
-  if (![1, 2, 3, 4, 5].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (![1, 2, 3, 4, 5, 6].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -16,6 +86,7 @@ export async function runAttackChecks(config, { expectedCommit, publicDataApiKey
     throw new Error('aleph.config.json의 실제 배포 주소를 먼저 넣어 주세요.');
   }
   if (typeof config.sampleMarker !== 'string' || !config.sampleMarker) throw new Error('가상 메모의 확인 표시를 넣어 주세요.');
+  if (config.step === 6) return runDeviceChecks(config, app, expectedCommit);
   if (config.step >= 3) {
     const probeId = randomUUID();
     const notePath = `/api/notes/${probeId}`;

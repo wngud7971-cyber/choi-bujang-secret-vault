@@ -1,4 +1,22 @@
-# BYTE BACK · 보너스 xdr-02 저장점
+# BYTE BACK · 6단계 저장점
+
+6단계 「등록한 기기만 자료실에 들어옵니다」는 기존 `src/decider.mjs`의 `device_registered` 규칙을 사용합니다. `request.deviceRegistered === true`이면 `allow`·`approved`, 미등록·누락·참이 아닌 값은 `deny`·`device_not_registered`입니다. 이 규칙은 앞선 보너스 작업에서 이미 구현되어 있어 중복 추가하거나 다른 규칙을 바꾸지 않았습니다. `RULE_IDS`는 실제 구현인 `device_registered`, `xdr.brute_force.deny`, `xdr.web_injection.deny`를 유지합니다. 요청 18항목·응답 5항목 계약, 기존 로그인·본인 메모 CRUD·원본 DB 보호·화면·주소·DB 자료를 보존합니다.
+
+사용자는 엔진이 확인한 `request.subjectId`, 기기 등록 여부는 최상위 `request.deviceRegistered`로 전달됩니다. 인증서가 없는 mTLS 요청과 등록 기기·다른 사용자 토큰 조합은 운영 엔진이 먼저 검사합니다. 브라우저에서 기기 상태를 받아 판정기를 호출하는 API는 추가하지 않았습니다. 실제 미등록 기기 공격과 운영 통로 검증은 심판이 수행하며 별도 접속 프로그램 설치는 없습니다. 이번 제작에는 인증서·CA·기기 개인키·발급자 서명 키를 만들거나 제출하지 않습니다.
+
+`aleph.config.json`의 단계만 6으로 갱신하고 기존 배포 주소·공개 저장소·발급자·대상·JWKS·허용 경로·원본 API·운영 측 `judgeIssuer`를 보존했습니다. 빌드와 배포 식별 JSON은 6단계를 지원하며 5단계부터 필요한 원본 API와 허용 경로도 계속 포함합니다. 자기 점검의 6단계 경로는 새 서명 키나 토큰을 만들지 않고 실제 판정기에 등록·미등록·등록 값 누락의 가상 요청을 보내 결과를 요약합니다. 실제 화면·공개 JSON·무로그인 API·배포 식별 JSON은 응답을 요청한 결과만 기록하고, mTLS와 사용자·기기 결합 시험은 미실행으로 남깁니다. 로컬 시험과 심판 결과를 구분합니다.
+
+확인 순서:
+
+1. `npm run decider:test`를 실행합니다. `통과 · 등록 기기의 정상 요청 · allow · approved`와 `통과 · 미등록 기기의 가상 요청 · deny · device_not_registered`가 모두 출력되어야 합니다.
+2. `npm run build -- --local`로 공개 JSON에 메모나 1단계 확인 표시가 다시 들어가지 않는지 확인합니다.
+3. `node --experimental-vm-modules --test test/*.test.mjs`로 기존 로그인·메모 소유자 보호·XDR와 6단계 빌드·제출 점검을 확인합니다. 이번 로컬 실행은 89개 통과·실패 0입니다. 등록 값 누락·`null`·문자열·숫자의 거부도 확인했습니다.
+4. 저장점 커밋 뒤 `npm run bundle`로 `artifacts/submission.json`을 만듭니다. npm 실행기가 없는 현재 작업 환경에서는 같은 파일인 `node scripts/decider-test.mjs`, `node scripts/build-public.mjs --local`, `node scripts/bundle.mjs`를 사용합니다. 실행하지 않은 점검을 성공으로 기록하지 않습니다.
+5. 기존 공개 저장소에 변경을 업로드하고 같은 Vercel 프로젝트를 재배포합니다. 자료실에서 로그인 → 본인 메모 조회 → 로그아웃을 확인하고, `/aleph.json`의 단계 6·배포 커밋·원본 API·허용 경로를 확인한 뒤 묶음을 다시 생성합니다. GitHub 웹 업로드의 커밋은 로컬 저장점과 다를 수 있으므로 실제 값을 대조합니다. 무로그인 API는 자료 없이 HTTP 401이어야 합니다.
+
+착수 시 README의 최신 보너스 xdr-02 기록과 로컬 마지막 커밋 `1cd4280`이 일치했고 작업 트리는 깨끗했습니다. 실제 공개 저장소의 기본 브랜치는 `main`이고 배포 식별 JSON은 단계 5·커밋 `eeb9d4e991af77daf0d3692c24921f3e643ec1bb`였습니다. 이 저장점의 원격 업로드·6단계 재배포·등록 기기의 실제 화면 확인·심판 판정은 아직 미확인입니다. 제출 JSON과 README에는 메모 본문·토큰·개인키를 넣지 않으며 `bundle-notes.json`과 `artifacts/submission.json`은 커밋하지 않습니다.
+
+## 보너스 xdr-02 저장점 (이전 기록)
 
 웹 주입 보너스는 `xdr/web-injection/`에 구현했습니다. 읽기 모듈은 원본 Wazuh 모양 경보 26건을 시각·출발 주소·가명 계정·규칙 수준·설명의 다섯 항목 26줄로 추출하고 비밀값을 가립니다. `patterns.json`은 MITRE ATT&CK T1190과 MITRE CWE-89·79·22·78을 근거로 SQL 구문·스크립트 태그·반복된 상위 경로 이동·명령 구분자 주입을 정의합니다. 패턴마다 찾는 조건과 한 줄 근거를 기록했습니다. 원본 경보와 기존 무차별 로그인 규칙·메모 API·DB 설정을 보존했습니다.
 
