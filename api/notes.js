@@ -1,8 +1,7 @@
 import config from '../aleph.config.json' with { type: 'json' };
 import { createLoginVerifier } from '../src/verify-login.mjs';
 import { randomUUID } from 'node:crypto';
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+import { UUID, parseResourceTarget, recordResourceDenial } from '../src/resource-path.mjs';
 
 let loginVerifier;
 let verifierKey;
@@ -47,22 +46,22 @@ export default async function handler(request, response) {
     return unauthorized(response);
   }
   if (!identity) return unauthorized(response);
+  const refuse = (status, error) => {
+    recordResourceDenial('notes', request.method, error);
+    return response.status(status).json({ error });
+  };
   // Query parameters, request bodies and custom user/role headers are not identities.
-  let id;
-  try {
-    const path = new URL(request.url ?? '/api/notes', 'https://local.invalid').pathname;
-    const route = /^\/api\/notes(?:\/([^/]+))?\/?$/u.exec(path);
-    if (!route) return response.status(404).json({ error: 'NOT_FOUND' });
-    id = route[1] === undefined ? null : decodeURIComponent(route[1]);
-    if (id !== null && !UUID.test(id)) return response.status(400).json({ error: 'INVALID_NOTE_ID' });
-    if (id) id = id.toLowerCase();
-  } catch {
-    return response.status(400).json({ error: 'INVALID_NOTE_ID' });
+  const resource = parseResourceTarget(request.url ?? '/api/notes', 'notes');
+  if (resource.error) return refuse(resource.status, resource.error);
+  if (resource.ownerId && resource.ownerId !== identity.userId.toLowerCase()) {
+    return refuse(404, 'NOTE_NOT_FOUND');
   }
+  let id = resource.id;
+  response.setHeader('X-Resource-ID', `notes:${id ?? `owner:${identity.userId}`}`);
   const allowed = id ? ['GET', 'PUT', 'DELETE'] : ['GET', 'POST'];
   if (!allowed.includes(request.method)) {
     response.setHeader('Allow', allowed.join(', '));
-    return response.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
+    return refuse(405, 'METHOD_NOT_ALLOWED');
   }
 
   let payload;
@@ -81,10 +80,12 @@ export default async function handler(request, response) {
         return response.status(400).json({ error: 'OWNER_CHANGE_NOT_ALLOWED' });
       }
       if (request.method === 'POST') {
+        if (resource.id) return refuse(405, 'METHOD_NOT_ALLOWED');
         if (payload.id !== undefined && (typeof payload.id !== 'string' || !UUID.test(payload.id))) {
           return response.status(400).json({ error: 'INVALID_NOTE_ID' });
         }
         id = payload.id?.toLowerCase() ?? randomUUID();
+        response.setHeader('X-Resource-ID', `notes:${id}`);
       }
     } catch {
       return response.status(400).json({ error: 'INVALID_NOTE' });
@@ -101,7 +102,7 @@ export default async function handler(request, response) {
   } else if (request.method !== 'POST') {
     endpoint.searchParams.set('id', `eq.${id}`);
   }
-  endpoint.searchParams.set('select', ['POST', 'DELETE'].includes(request.method) ? 'id' : 'id,title,content');
+  endpoint.searchParams.set('select', ['POST', 'DELETE'].includes(request.method) ? 'id' : 'id,title,content,owner_id');
   const options = {
     method: request.method === 'PUT' ? 'PATCH' : request.method,
     headers: { apikey: secretKey, Accept: 'application/json' },
@@ -124,14 +125,20 @@ export default async function handler(request, response) {
     if (!upstream.ok) throw new Error('notes_unavailable');
     const rows = await upstream.json();
     if (!Array.isArray(rows) || rows.some(row => !row
-        || typeof row.id !== 'string'
+        || typeof row.id !== 'string' || !UUID.test(row.id)
         || (['GET', 'PUT'].includes(request.method)
           && (typeof row.title !== 'string' || typeof row.content !== 'string')))) {
       throw new Error('invalid_notes_response');
     }
+    // The database filter is the atomic boundary; validate returned ownership as
+    // well so a malformed upstream response never releases another user's data.
+    if (['GET', 'PUT'].includes(request.method)
+        && rows.some(row => row.owner_id !== identity.userId)) {
+      return refuse(502, 'NOTES_UNAVAILABLE');
+    }
     const note = row => ({ id: row.id, title: row.title, body: row.content });
     if (request.method === 'GET' && !id) return response.status(200).json(rows.map(note));
-    if (rows.length === 0 && request.method !== 'POST') return response.status(404).json({ error: 'NOTE_NOT_FOUND' });
+    if (rows.length === 0 && request.method !== 'POST') return refuse(404, 'NOTE_NOT_FOUND');
     if (rows.length !== 1 || rows[0].id.toLowerCase() !== id) throw new Error('invalid_notes_response');
     if (request.method === 'POST') return response.status(201).json({ id: rows[0].id });
     if (request.method === 'DELETE') return response.status(200).json({ id: rows[0].id });

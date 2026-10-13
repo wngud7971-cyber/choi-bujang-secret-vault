@@ -4,7 +4,56 @@
 // 요청 본문의 userId, role, 기기 키, 토큰을 별도로 믿거나 저장하지 마세요.
 export const RULE_IDS = Object.freeze([
   'device_registered', 'xdr.brute_force.deny', 'xdr.web_injection.deny', 'step_up_required',
+  'resource.exact_route', 'resource.note_owner', 'resource.announcement_editor',
 ]);
+
+// User-zone IDs are the ENGINE'S opaque subject IDs, never Supabase UUIDs.
+// A bare legacy note ID has no owner evidence here and is denied. The final API
+// keeps its existing addresses and checks the stored owner independently.
+export function inspectResourceInput(request) {
+  const path = request?.path;
+  const method = request?.method;
+  const subject = request?.subjectId;
+  const invalid = ruleId => ({ allowed: false, ruleId });
+  if (request?.schema !== 'aleph.decision.v1'
+      || typeof subject !== 'string' || !/^[A-Za-z0-9_-]{1,160}$/u.test(subject)
+      || !/^[a-f0-9]{16}$/u.test(request.deviceId ?? '')
+      || request.service !== 'notes' || typeof path !== 'string'
+      || /[\\%?#\s]/u.test(path) || path.includes('//')
+      || /(?:^|\/)\.{1,2}(?:\/|$)/u.test(path)
+      || request.queryLength !== 0
+      || request.querySha256 !== 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+      || typeof request.route !== 'string') return invalid('resource.exact_route');
+  const root = path.startsWith('/api/') ? '/api' : '';
+  const notes = `${root}/notes`;
+  const notices = `${root}/announcements`;
+  if (path === notes) {
+    // This endpoint has an implicit self scope; its API always filters the
+    // authenticated owner. A query cannot select another owner or operation.
+    return ['GET', 'POST'].includes(method) && request.route === `${method} ${notes}`
+      ? { allowed: true, ruleId: 'resource.note_owner', resourceId: 'notes:self' }
+      : invalid('resource.exact_route');
+  }
+  const own = new RegExp(`^${notes}/owners/([A-Za-z0-9_-]{1,160})(?:/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}))?$`, 'u').exec(path);
+  if (own) {
+    const [ , owner, id ] = own;
+    const route = `${method} ${notes}/owners/:ownerId${id ? '/:id' : ''}`;
+    if (request.route !== route || !(id ? ['GET', 'PUT', 'DELETE'] : ['GET', 'POST']).includes(method)) {
+      return invalid('resource.exact_route');
+    }
+    return owner === subject
+      ? { allowed: true, ruleId: 'resource.note_owner', resourceId: `notes:${owner}:${id ?? 'collection'}` }
+      : invalid('resource.note_owner');
+  }
+  const notice = new RegExp(`^${notices}(?:/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}))?$`, 'u').exec(path);
+  if (notice && request.route === `${method} ${notices}${notice[1] ? '/:id' : ''}`) {
+    if (method === 'GET') return { allowed: true, ruleId: 'resource.exact_route', resourceId: `announcements:${notice[1] ?? 'collection'}` };
+    // The current 18-field engine contract contains no verified teacher grant.
+    // Never fabricate request.role or treat judge_fixture/subject spelling as one.
+    if (method === (notice[1] ? 'PUT' : 'POST')) return invalid('resource.announcement_editor');
+  }
+  return invalid('resource.exact_route');
+}
 
 // Only inspect the verified engine request. Never read browser headers/body.
 // A fixture is synthetic evidence; unavailable values stay null, never normal.
@@ -40,14 +89,19 @@ export function inspectConnectionInput(request) {
 }
 
 export function decide(request) {
-  if (request.deviceRegistered !== true) {
+  if (request?.deviceRegistered !== true) {
     return {
       schema: 'aleph.decision.v1',
-      requestId: request.requestId,
+      requestId: request?.requestId,
       decision: 'deny',
       reasonCode: 'device_not_registered',
       ruleIds: ['device_registered'],
     };
+  }
+  const resource = inspectResourceInput(request);
+  if (!resource.allowed) {
+    return { schema: 'aleph.decision.v1', requestId: request.requestId,
+      decision: 'deny', reasonCode: 'starter_not_ready', ruleIds: [resource.ruleId] };
   }
   const input = inspectConnectionInput(request);
   // The bundled fixture defines risk_signal as recent bulk access. Region alone

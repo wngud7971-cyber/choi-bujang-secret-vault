@@ -5,6 +5,60 @@ import { generateKeyPair, SignJWT } from 'jose';
 import { decide, RULE_IDS } from './decider.mjs';
 import { checkDecider } from '../scripts/decider-test.mjs';
 import { fixtureRequests } from '../scripts/fixture-7.mjs';
+import { checkZones } from '../scripts/fixture-8.mjs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+async function runZoneChecks(config, app, expectedCommit) {
+  const prior = await runDeviceChecks(config, app, expectedCommit);
+  const zones = await checkZones(decide);
+  // Keep the v2 submission's 20-item limit, grouping related executed requests.
+  const groups = [
+    ['own_zone_fixture', ['self_note_read', 'self_note_edit', 'self_note_list'], '본인 메모 조회·수정·목록 허용'],
+    ['foreign_zone_fixture', ['foreign_note_read', 'foreign_note_edit', 'foreign_note_list'], '다른 사용자 메모 조회·수정·목록 거부'],
+    ['announcement_zone_fixture', ['student_notice_edit', 'authenticated_notice_read'], '학생 공지 수정 거부·로그인 공지 조회 허용'],
+    ['unknown_route_and_query_fixture', ['unknown_resource_path', 'query_operation_switch'], '알 수 없는 경로와 기능 쿼리 거부'],
+  ];
+  const results = groups.map(([attackId, names, expected]) => {
+    const executed = zones.filter(result => names.includes(result.name));
+    return { attackId, expected: `로컬 가상 요청: ${expected}`,
+      observed: `${executed.length === names.length && executed.every(item => item.passed) ? '로컬 가상 시험 통과' : '불일치'}: ${executed.length}건 실행; 실제 심판 판정 아님` };
+  });
+  try {
+    // Separate process: ephemeral JWKS and in-memory DB never affect live probes.
+    const runner = new URL('../scripts/zone-api-check.mjs', import.meta.url).href;
+    const code = `const {checkResourceApis}=await import(${JSON.stringify(runner)});const r=await checkResourceApis();process.stdout.write(JSON.stringify({count:r.length,passed:r.every(x=>x.passed)}));`;
+    const { stdout } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', code],
+      { windowsHide: true, timeout: 15000, maxBuffer: 4096 });
+    const summary = JSON.parse(stdout);
+    results.push({ attackId: 'resource_api_local_boundary', expected: '실제 API 핸들러의 본인 정상·교차 소유자·학생 사칭·정상 강사·권한 회수 거부 확인',
+      observed: `${summary.passed && summary.count === 9 ? '로컬 API 가상 시험 통과' : '불일치'}: ${summary.count}개 시나리오; 메모리 DB와 일시 서명 신원 사용, 운영 DB·심판 시험 아님` });
+  } catch {
+    results.push({ attackId: 'resource_api_local_boundary', expected: '실제 API 핸들러의 소유자·강사 권한 검증',
+      observed: '불일치: 로컬 API 가상 시험 실패 또는 시간 초과; 원문·토큰은 기록하지 않음' });
+  }
+  const id = randomUUID();
+  for (const [attackId, path, method] of [
+    ['anonymous_announcement_read', `/api/announcements/${id}`, 'GET'],
+    ['anonymous_announcement_edit', `/api/announcements/${id}`, 'PUT'],
+  ]) {
+    let observed = '미확인: 요청 실패 또는 시간 초과';
+    try {
+      const response = await fetch(new URL(path, app), { method,
+        redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(10000) });
+      const data = await response.json().catch(() => null);
+      observed = response.status === 401 && data?.error === 'LOGIN_REQUIRED'
+        && Object.keys(data).length === 1 ? 'HTTP 401: 자료 없이 무로그인 공지 요청 거부'
+        : `불일치: HTTP ${response.status}, 무로그인 공지 거부 미확인`;
+    } catch { /* No response bodies or transport details in the submission. */ }
+    results.push({ attackId, expected: '실제 배포 API가 무로그인 공지 요청을 HTTP 401로 거부', observed });
+  }
+  results.push({ attackId: 'resource_api_live_accounts', expected: '배포 후 실제 A/B 본인 정상·교차 구역 거부와 저장된 강사 공지 수정 확인',
+    observed: '미실행: 실제 계정 토큰과 DB 변경을 자동 생성하지 않음. 운영 DB 설정·강사 권한·엔진 주체 연결은 별도 확인 필요' });
+  results.push({ attackId: 'engine_instructor_grant_contract', expected: '엔진이 검증한 강사 권한이 있을 때만 공지 수정 허용',
+    observed: '미실행: 현재 18항목 엔진 계약에 강사 권한이 없음. 판정기는 공지 수정을 거부하며 API의 저장된 강사 허용과 구분' });
+  return [...prior, ...results];
+}
 
 // Stages 6/7 exercise the engine contract locally, without creating signing keys.
 // Transport authentication and device/subject binding remain the engine's job.
@@ -103,7 +157,7 @@ async function runDeviceChecks(config, app, expectedCommit) {
 }
 
 export async function runAttackChecks(config, { expectedCommit, publicDataApiKey = process.env.SUPABASE_PUBLISHABLE_KEY } = {}) {
-  if (![1, 2, 3, 4, 5, 6, 7].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (![1, 2, 3, 4, 5, 6, 7, 8].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -115,6 +169,7 @@ export async function runAttackChecks(config, { expectedCommit, publicDataApiKey
     throw new Error('aleph.config.json의 실제 배포 주소를 먼저 넣어 주세요.');
   }
   if (typeof config.sampleMarker !== 'string' || !config.sampleMarker) throw new Error('가상 메모의 확인 표시를 넣어 주세요.');
+  if (config.step === 8) return runZoneChecks(config, app, expectedCommit);
   if (config.step >= 6) return runDeviceChecks(config, app, expectedCommit);
   if (config.step >= 3) {
     const probeId = randomUUID();

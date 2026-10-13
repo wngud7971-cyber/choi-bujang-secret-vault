@@ -51,7 +51,7 @@ test('stage 4 authenticates and restricts all note operations to the verified ow
     if (url.href === config.judgeIssuer + '/.well-known/jwks.json') return Response.json({ keys: [judgeJwk] });
     assert.equal(url.origin, new URL(config.identityProvider.issuer).origin);
     assert.equal(url.pathname, '/rest/v1/training_notes');
-    assert.equal(url.searchParams.get('select'), ['POST', 'DELETE'].includes(options.method) ? 'id' : 'id,title,content');
+    assert.equal(url.searchParams.get('select'), ['POST', 'DELETE'].includes(options.method) ? 'id' : 'id,title,content,owner_id');
     if (options.method !== 'POST') assert.ok(url.searchParams.get('owner_id')?.startsWith('eq.'));
     if (options.method === 'GET' && !url.searchParams.has('id')) {
       assert.ok(url.searchParams.get('owner_id')?.startsWith('eq.'));
@@ -103,8 +103,8 @@ test('stage 4 authenticates and restricts all note operations to the verified ow
 
     await t.test('verified student and operator test identities can read, excluding upstream extra fields', async () => {
       const rows = Array.from({ length: 4 }, (_, i) => ({
-        id: String(i + 1), title: 'Test card ' + (i + 1), content: 'Test content ' + (i + 1),
-        owner_id: 'TEST_OWNER', secret: testKey,
+        id: `${String(i + 1).repeat(8)}-1111-4111-8111-111111111111`, title: 'Test card ' + (i + 1), content: 'Test content ' + (i + 1),
+        owner_id: userId, secret: testKey,
       }));
       databaseResponse = async () => Response.json(rows);
       for (const token of [validToken, validJudgeToken]) {
@@ -187,7 +187,9 @@ test('stage 4 authenticates and restricts all note operations to the verified ow
       assert.equal(rows.get(noteId).owner_id, userId);
       const updated = await mutation('PUT', { title: 'Updated', body: 'New synthetic content' }, '/api/notes/' + noteId);
       assert.deepEqual(updated.body, { id: noteId, title: 'Updated', body: 'New synthetic content' });
-      const ownList = await call('Bearer ' + validToken, 'GET', { url: '/api/notes?userId=' + userB, query: { userId: userB } });
+      const spoofedList = await call('Bearer ' + validToken, 'GET', { url: '/api/notes?userId=' + userB, query: { userId: userB } });
+      assert.equal(spoofedList.statusCode, 400);
+      const ownList = await call('Bearer ' + validToken, 'GET', { url: '/api/notes' });
       assert.equal(ownList.body.length, 2);
       assert.ok(!ownList.body.some(row => row.id === legacyNote || row.id === judgeNote));
       assert.deepEqual((await call('Bearer ' + tokenB)).body, []);
@@ -203,7 +205,10 @@ test('stage 4 authenticates and restricts all note operations to the verified ow
         [validToken, legacyNote, userId], [tokenB, legacyNote, userB],
       ]) {
         const before = structuredClone(rows.get(foreignId));
-        const url = '/api/notes/' + foreignId + '?owner_id=' + spoofedOwner + '&userId=' + spoofedOwner;
+        const url = '/api/notes/' + foreignId;
+        assert.equal((await call('Bearer ' + token, 'GET', {
+          url: url + '?owner_id=' + spoofedOwner + '&userId=' + spoofedOwner,
+        })).statusCode, 400);
         const read = await call('Bearer ' + token, 'GET', {
           url, query: { owner_id: spoofedOwner },
           headers: { 'x-user-id': spoofedOwner, 'x-role': 'admin' },
@@ -268,7 +273,15 @@ test('stage 4 authenticates and restricts all note operations to the verified ow
         assert.equal(res.headers.get('cache-control'), 'no-store');
       }
     });
-    assert.deepEqual(logs, []);
+    assert.ok(logs.length > 0);
+    for (const args of logs) {
+      assert.equal(args.length, 1);
+      const event = JSON.parse(args[0]);
+      assert.deepEqual(Object.keys(event).sort(), ['event', 'method', 'reason', 'resource']);
+      assert.equal(event.event, 'resource_access_denied');
+      assert.equal(event.resource, 'notes');
+      assert.ok(!args[0].includes(testKey) && !args[0].includes(userId));
+    }
   } finally {
     globalThis.fetch = oldFetch;
     for (const name of Object.keys(oldConsole)) console[name] = oldConsole[name];

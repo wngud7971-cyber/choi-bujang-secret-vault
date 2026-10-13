@@ -1,5 +1,5 @@
 {
-  "step": 7,
+  "step": 8,
   "repoUrl": "https://github.com/wngud7971-cyber/choi-bujang-secret-vault",
   "publicAppUrl": "https://choi-bujang-secret-vault-lovat.vercel.app",
   "sampleMarker": "SAMPLE_NOTE_1",
@@ -14,7 +14,16 @@
     "POST /api/notes",
     "GET /api/notes/:id",
     "PUT /api/notes/:id",
-    "DELETE /api/notes/:id"
+    "DELETE /api/notes/:id",
+    "GET /api/notes/owners/:ownerId",
+    "POST /api/notes/owners/:ownerId",
+    "GET /api/notes/owners/:ownerId/:id",
+    "PUT /api/notes/owners/:ownerId/:id",
+    "DELETE /api/notes/owners/:ownerId/:id",
+    "GET /api/announcements",
+    "POST /api/announcements",
+    "GET /api/announcements/:id",
+    "PUT /api/announcements/:id"
   ],
   "originalApiUrl": "https://tdltpkfewovnxnxhvbkd.supabase.co/rest/v1/training_notes",
   "restoreRoute": null
