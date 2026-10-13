@@ -10,7 +10,7 @@ test('10단계 제출: 20개 이내·실행한 로컬 복구 결과·운영 미�
   let calls = 0;
   try {
     globalThis.fetch = () => { calls++; throw new Error('offline_must_not_fetch'); };
-    const checks = await runAttackChecks(config, { expectedCommit: 'a'.repeat(40), offline: true });
+    const checks = await runAttackChecks({ ...config, step: 10 }, { expectedCommit: 'a'.repeat(40), offline: true });
     assert.equal(calls, 0);
     assert.equal(checks.length, 19);
     assert.equal(new Set(checks.map(x => x.attackId)).size, 19);
@@ -38,4 +38,12 @@ test('10단계 엔진 복구 경로: 정확한 POST만 기존 기기·추가 확
     { path: '/api/restore/all' }, { path: '/api/restore?id=x' }, { route: 'POST /notes/:id' }]) {
     assert.equal(decide({ ...request, ...changes }).decision, 'deny');
   }
+});
+
+test('11단계 자기 점검은 기존 19개와 실제 로컬 앱 시험을 20개 제한 안에서 기록한다', async () => {
+  const checks = await runAttackChecks({ ...config, step: 11 }, { expectedCommit: 'a'.repeat(40), offline: true });
+  assert.equal(checks.length, 20);
+  const app = checks.find(item => item.attackId === 'device_app_local_boundary');
+  assert.match(app.observed, /^로컬 시험 22개 통과/u);
+  assert.match(app.observed, /공식 심판.*미실행/u);
 });

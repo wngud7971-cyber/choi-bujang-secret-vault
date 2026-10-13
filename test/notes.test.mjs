@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import config from '../aleph.config.json' with { type: 'json' };
+// This isolated test process verifies the earlier stage 4/10 owner boundary.
+// Stage 11 signatures and the current APIs are exercised by step11-device.test.mjs.
+config.step = 10;
 import handler from '../api/notes.js';
 
 function responseRecorder() {

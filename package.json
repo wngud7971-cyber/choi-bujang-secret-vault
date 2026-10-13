@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:11": "node --test test/step11-device.test.mjs test/auth-ui.test.mjs test/step11-app.test.mjs",
     "policy:prepare": "node scripts/prepare-policy-test.mjs",
     "policy:preview": "node scripts/policy-preview.mjs",
     "policy:restore": "node scripts/policy-restore.mjs",
@@ -24,6 +25,7 @@
     "node": ">=22"
   },
   "dependencies": {
+    "@simplewebauthn/server": "14.0.0",
     "@supabase/supabase-js": "2.117.2",
     "jose": "6.2.12"
   },
