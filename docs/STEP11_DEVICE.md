@@ -1,8 +1,10 @@
-# 11단계 · 기존 자료실의 서버 기기 승인과 요청 서명
+# 11단계 재제작 · 기존 자료실의 서버 기기 승인과 요청 서명
 
 기존 BYTE BACK 자료실·Supabase 로그인·메모/공지/복구 API를 유지하고, 그 API 앞에 서버 기기 승인·WebAuthn 증명 검사를 추가합니다. 기존 18항목 판정기 요청과 5항목 응답은 변경하지 않습니다. 공식 엔진의 기기 등록부와 이 자료실의 등록부가 연결됐다고 주장하지 않습니다. 이 구현의 공식 심판 서명 형식과 호환성은 미확인입니다.
 
 ## 등록과 운영자 승인
+
+이전 11단계에서 이 SQL을 이미 적용했다면 다시 실행하지 않습니다. 같은 비공개 기기 등록부를 사용하며 기존 운영 DB·등록·감사·메모를 수정하지 않습니다.
 
 1. 기존 학습 Supabase **SQL Editor → New query**에서 `STEP11_DATABASE.sql` 전체를 한 번 실행합니다. 2026-10-13 사용자가 프로젝트 재개 후 **Success. No rows returned** 결과를 보고했습니다. 도구가 직접 운영 DB의 설정/권한을 검증하지는 않았습니다. 기존 메모·공지·백업·감사·권한은 교체하지 않습니다. 새 기기 등록부·일회용 challenge 저장소·추가 감사 저장소만 만듭니다. DB 미설정은 503으로 중단합니다.
 2. 기존 HTTPS 배포 주소에서 로그인하고 **기기 승인 요청**을 누릅니다. 운영체제의 기기 인증 창에서 본인 확인을 완료합니다. 서버는 RP·origin·challenge·사용자 확인·등록 응답을 검증한 뒤 공개키만 비공개 DB에 저장하며 상태는 항상 `pending`입니다. 화면에 16자리 등록 요청 번호가 표시됩니다.
@@ -27,13 +29,13 @@ WebAuthn의 플랫폼 인증기를 사용합니다. 앱은 개인키를 생성·
 
 | 경로 | 동작 |
 |---|---|
-| `GET /api/device/status` | 해당 계정의 pending/approved 수만 제공, 현재 기기는 항상 `approved: false` |
-| `POST /api/device/register` + `{}` | 플랫폼 인증기 등록 옵션과 일회용 challenge ID |
-| `POST /api/device/finish` | 검증한 등록 응답을 pending으로 저장, 공개 요청 번호 반환 |
-| `POST /api/device/options` | `kind: status` 또는 `kind: request`의 일회용 인증 옵션 |
-| `POST /api/device/verify` | 현재 인증기의 서명 후 승인 결과 반환 |
+| `GET /api/device` | 해당 계정의 pending/approved 수만 제공, 현재 기기는 항상 `approved: false` |
+| `POST /api/device` + `action: "register"` | 플랫폼 인증기 등록 옵션과 일회용 challenge ID |
+| `POST /api/device` + `action: "finish"` | 검증한 등록 응답을 pending으로 저장, 공개 요청 번호 반환 |
+| `POST /api/device` + `action: "options"` | `kind: status` 또는 `kind: request`의 일회용 인증 옵션 |
+| `POST /api/device` + `action: "verify"` | 현재 인증기의 서명 후 승인 결과 반환 |
 
-`finish`·`verify` 본문은 `{challengeId, credential}`입니다. 브라우저의 WebAuthn 공개 응답만 보내며 키 원문은 보낼 수 없습니다. `request` 옵션에는 `{kind, method, path, bodySha256}`가 필요하고 기존 허용 경로만 선택할 수 있습니다. 경로는 쿼리까지 정확히 묶으며 기존 파서가 허용하는 단일 UUID ID 선택만 유지합니다.
+POST 본문에는 `action`을 포함하며 `finish`·`verify`의 추가 항목은 `{challengeId, credential}`입니다. `action`은 알려진 작업만 선택하며 승인 권한을 주지 않습니다. 쿼리 매개변수·승인 상태/소유자/역할 입력은 거부합니다. 이전 기기 URL은 같은 고정 처리기를 거치는 호환용으로 유지합니다. 브라우저의 WebAuthn 공개 응답만 보내며 키 원문은 보낼 수 없습니다. `request` 옵션에는 `{kind, method, path, bodySha256}`가 필요하고 기존 허용 경로만 선택할 수 있습니다. 경로는 쿼리까지 정확히 묶으며 기존 파서가 허용하는 단일 UUID ID 선택만 유지합니다.
 
 보호 요청은 `x-byteback-device-proof`에 base64url로 인코딩한 `{challengeId, credential}`을 보냅니다. 서버는 메서드·정확한 요청 대상·JSON 값의 canonical SHA-256·검증한 발급자/사용자/시험 실행·로그인 토큰 해시·만료 시각을 저장된 challenge와 대조합니다. 키 이름 정렬을 사용하므로 JSON 공백과 키 순서만 달라진 것은 같은 값이며 제목/내용의 변경은 다른 해시입니다. GET/DELETE는 기존 API가 본문을 사용하지 않으므로 빈 본문에 묶습니다.
 
@@ -41,6 +43,6 @@ RP/origin·사용자 존재/확인·기기 공개키 서명·counter를 검증�
 
 ## 검증과 운영 확인
 
-`npm run test:11` (동일 실행: `node --test test/step11-device.test.mjs test/auth-ui.test.mjs test/step11-app.test.mjs`)은 로컬 일시 키로 실제 WebAuthn 등록/서명을 만들고 임시 PostgreSQL에서 SQL을 실행합니다. 실제 운영체제 인증기·학생 계정·운영 DB는 사용하지 않습니다. 기존 단계의 API 시험은 명시적으로 10단계 조건에서 이전 경계를 재검사하고, 새 11단계 시험은 현재 API의 실제 서명 경계를 확인합니다. 2026-10-13 로컬 결과는 기기/화면 묶음 22개·전체 회귀 191개 통과이며 실제 기기 설치나 공식 심판 통과를 뜻하지 않습니다.
+`npm run test:11` (동일 실행: `node --test test/step11-device.test.mjs test/auth-ui.test.mjs test/step11-app.test.mjs`)은 로컬 일시 키로 실제 WebAuthn 등록/서명을 만들고 임시 PostgreSQL에서 SQL을 실행합니다. 실제 운영체제 인증기·학생 계정·운영 DB는 사용하지 않습니다. 기존 단계의 API 시험은 명시적으로 10단계 조건에서 이전 경계를 재검사하고, 새 11단계 시험은 현재 API의 실제 서명 경계를 확인합니다. 2026-10-13 로컬 결과는 재제작 기기/화면 묶음 23개 통과이며 실제 기기 설치나 공식 심판 통과를 뜻하지 않습니다.
 
 배포 후 직접 확인: 승인 전 메모/편집기 없음 → 등록 요청 뒤에도 없음 → 운영자 승인 후 기기 인증 → 본인 메모 조회/추가/수정/삭제 → 로그아웃 시 화면 지움. 각 보호 요청에서 기기 확인이 필요합니다. 오프라인/토큰 변경/승인 재확인은 화면을 잠그고 새 확인을 요구합니다. 무서명은 403, 승인 기기의 정상 조회는 200이어야 합니다. 실제 승인·회수·물리 인증기·공식 심판 판정은 아직 미실행입니다.

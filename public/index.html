@@ -148,7 +148,7 @@
       deviceAbort?.abort();
       deviceAbort = controller;
       try {
-        const response = await fetch('/api/device/status', { headers: { Authorization: `Bearer ${token}` },
+        const response = await fetch('/api/device', { headers: { Authorization: `Bearer ${token}` },
           cache: 'no-store', redirect: 'error', signal: controller.signal });
         const data = await response.json();
         if (activeToken !== token || requestId !== notesRequest || controller.signal.aborted) return;

@@ -34,9 +34,9 @@ function deviceError(code) {
           : '기기 확인 요청을 완료하지 못했습니다. 다시 시도해 주세요.');
 }
 async function api(action, token, body, signal) {
-  const response = await fetch(`/api/device/${action}`, { method: 'POST',
+  const response = await fetch('/api/device', { method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body), cache: 'no-store', redirect: 'error', signal });
+    body: JSON.stringify({ action, ...body }), cache: 'no-store', redirect: 'error', signal });
   const data = await response.json();
   if (!response.ok) throw deviceError(data?.error);
   return data;
