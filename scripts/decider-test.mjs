@@ -18,7 +18,7 @@ function validResponse(request, response, ruleIds) {
 }
 
 // Local practice only. The class engine and the server judge validate live requests separately.
-export async function checkDecider({ decide, ruleIds }) {
+export async function checkDecider({ decide, ruleIds, includeStepUp = ruleIds?.includes('step_up_required') }) {
   if (typeof decide !== 'function' || !Array.isArray(ruleIds)
       || !ruleIds.includes('device_registered')) {
     throw new Error('6단계 device_registered 규칙을 먼저 구현하고 RULE_IDS에 적어 주세요.');
@@ -29,13 +29,13 @@ export async function checkDecider({ decide, ruleIds }) {
     { name: '미등록 기기의 가상 요청', request: { ...normal, requestId: randomUUID(),
       deviceRegistered: false }, decision: 'deny', reasonCode: 'device_not_registered' },
   ];
-  if (ruleIds.includes('step_up_required')) {
+  if (includeStepUp) {
     checks.push(
       { name: '복합 이상 접속', request: suspicious, decision: 'step_up',
         reasonCode: 'step_up_required' },
-      { name: '다시 확인한 복합 이상 접속', request: { ...suspicious,
+      { name: '로그인 시각 검증 없이 확인 표시만 있는 복합 사건', request: { ...suspicious,
         requestId: randomUUID(), stepUp: { verified: true, authAgeSeconds: 60 } },
-      decision: 'allow' },
+      decision: 'step_up', reasonCode: 'step_up_required' },
     );
   }
   const results = [];

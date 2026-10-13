@@ -36,5 +36,19 @@ for (const [name, deviceRegistered] of [
   assert.equal(response.ruleIds[0], 'device_registered');
   results.push({ name, decision: response.decision, reasonCode: response.reasonCode });
 }
+const { suspicious } = fixtureRequests();
+const step7Results = [];
+for (const [name, request, expected] of [
+  ['compound', suspicious, 'step_up'],
+  ['unverified_relogin', { ...suspicious, stepUp: { verified: true, authAgeSeconds: 0 } }, 'step_up'],
+  ['missing_signals', { ...normal, signals: undefined }, 'step_up'],
+  ['unavailable', { ...normal, signals: { source: 'none', region: 'unknown', network: 'unknown', hour: 14 } }, 'allow'],
+]) {
+  const response = await loaded.namespace.decide(request);
+  assert.equal(response.decision, expected);
+  assert.equal(response.requestId, request.requestId);
+  assert.equal(Object.keys(response).sort().join(','), 'decision,reasonCode,requestId,ruleIds,schema');
+  step7Results.push({ name, decision: response.decision, reasonCode: response.reasonCode });
+}
 process.stdout.write(`${JSON.stringify({ isolatedLoad: 'passed', imports: 0,
-  importGuardChecked: true, results })}\n`);
+  importGuardChecked: true, results, step7Results })}\n`);
