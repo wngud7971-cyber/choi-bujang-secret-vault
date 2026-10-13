@@ -9,7 +9,7 @@ import { runAttackChecks } from '../src/attack-check.mjs';
 
 test('8단계: 본인 조회·수정·목록은 허용하고 교차 소유자와 학생 공지 수정은 거부', async () => {
   const results = await checkZones(decide);
-  assert.equal(results.length, 10);
+  assert.equal(results.length, 16);
   assert.ok(results.every(result => result.passed), JSON.stringify(results));
 });
 
@@ -78,9 +78,16 @@ test('8단계 제출: 20개 제한과 실제·가상·미실행 구분을 유지
     assert.equal(results.length, 20);
     assert.equal(new Set(results.map(result => result.attackId)).size, 20);
     assert.match(results.find(result => result.attackId === 'resource_api_local_boundary').observed, /^로컬 API 가상 시험 통과/u);
-    for (const id of ['resource_api_live_accounts', 'engine_instructor_grant_contract']) {
+    for (const id of ['resource_api_live_accounts', 'engine_resource_routing_live']) {
       assert.match(results.find(result => result.attackId === id).observed, /^미실행/u);
     }
     assert.ok(!JSON.stringify(results).includes('DO_NOT_RECORD_THIS_BODY'));
+    calls = 0;
+    const offline = await runAttackChecks(config, { expectedCommit, offline: true });
+    assert.equal(calls, 0, 'offline packaging must never request the deployed app');
+    assert.equal(offline.length, 20);
+    for (const result of offline.filter(item => /^(public_|anonymous_|deployment_)/u.test(item.attackId))) {
+      assert.match(result.observed, /^미실행/u);
+    }
   } finally { globalThis.fetch = oldFetch; }
 });
