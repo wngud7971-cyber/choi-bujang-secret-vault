@@ -70,12 +70,14 @@ export async function runReadChecks(config, { expectedCommit, offline = false, f
       const text = method === 'HEAD' ? '' : await response.text();
       if (text.length > 262144) throw new Error('response_too_large');
       const matchesExpected = ready({ status: response.status, text });
-      output.push({ attackId, expected, observed: `HTTP ${response.status}; bodyBytes=${bytes(text)}; jsonReady=${matchesExpected}; method=${method}` });
+      // Submission evidence must describe the response itself. Derived checks
+      // and request metadata belong to the separate operations diagnostics.
+      output.push({ attackId, expected, observed: `HTTP ${response.status}` });
       const rawId = response.headers?.get('x-vercel-id');
       result = { ...observation, status: 'observed', httpStatus: response.status, responseBytes: bytes(text),
         requestId: typeof rawId === 'string' && /^[A-Za-z0-9:._=-]{1,160}$/u.test(rawId) ? rawId : null,
         checkedAt: onObservation ? new Date().toISOString() : null, matchesExpected };
-    } catch { output.push({ attackId, expected, observed: `not_run: public_request_unavailable; method=${method}` }); }
+    } catch { output.push({ attackId, expected, observed: 'not_run: public_request_unavailable' }); }
     onObservation?.(result ?? observation);
   }
   output.push(
