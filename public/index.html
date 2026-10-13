@@ -92,6 +92,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
   <script type="module" src="/device-client.js"></script>
   <script type="module" id="auth-script">
+    import { createAccessGate } from '/access-state.js';
     const form = document.querySelector('#login-form');
     const email = document.querySelector('#email');
     const password = document.querySelector('#password');
@@ -124,16 +125,16 @@
     let noteBusy = false;
     let operationAbort;
     const offline = () => window.navigator?.onLine === false;
-    let approvedToken = null;
+    const accessGate = createAccessGate();
     let deviceBusy = false;
     let deviceAbort;
-    const approvedDevice = () => Boolean(activeToken && approvedToken === activeToken && !offline());
+    const approvedDevice = () => Boolean(activeToken && accessGate.snapshot().canRead && !offline());
 
     function deviceControls() {
       requestDevice.disabled = checkDevice.disabled = !ready || !activeToken || deviceBusy || offline();
     }
     function closeRoom(text = '기기 승인 전에는 보호 자료를 표시하지 않습니다.') {
-      approvedToken = null;
+      accessGate.lock(offline() ? 'offline' : activeToken ? 'unverified' : 'signed_out');
       ++notesRequest;
       notesAbort?.abort();
       operationAbort?.abort();
@@ -168,6 +169,7 @@
       if (!ready || !activeToken || deviceBusy || offline()) return;
       const token = activeToken;
       closeRoom();
+      const accessRevision = accessGate.begin(action).revision;
       const requestId = notesRequest;
       deviceAbort?.abort();
       const controller = new AbortController();
@@ -180,20 +182,22 @@
         if (!window.byteBackDevice) throw new Error('기기 인증 도구를 불러오지 못했습니다. 새로고침해 주세요.');
         const result = await window.byteBackDevice[action](token, controller.signal);
         if (activeToken !== token || requestId !== notesRequest || controller.signal.aborted) return;
-        if (action === 'check' && result.approved === true && result.state === 'approved') {
-          approvedToken = token;
+        const access = accessGate.complete(accessRevision, result);
+        if (access.canRead) {
           deviceStatus.textContent = '기기 승인 상태: 서버 확인 완료';
           deviceMessage.textContent = '승인된 기기입니다. 보호 요청마다 기기 인증으로 서명합니다.';
           editor.hidden = false;
           void loadNotes(token, ++notesRequest);
         } else {
-          deviceStatus.textContent = result.state === 'revoked' ? '기기 승인 상태: 승인 회수됨' : '기기 승인 상태: 승인 대기';
+          deviceStatus.textContent = access.state === 'revoked' ? '기기 승인 상태: 승인 회수됨'
+            : access.state === 'pending' ? '기기 승인 상태: 승인 대기' : '기기 승인 상태: 확인되지 않음';
           deviceMessage.textContent = result.requestId
             ? `등록 요청 번호: ${result.requestId}. 운영자에게 이 번호를 알려 주세요. 승인 후 승인 결과 확인을 눌러 주세요.`
             : '서버가 승인한 기기가 아닙니다. 보호 자료는 표시하지 않습니다.';
         }
       } catch (error) {
         if (activeToken !== token || requestId !== notesRequest || controller.signal.aborted) return;
+        accessGate.lock('error');
         deviceStatus.textContent = '기기 승인 상태: 확인되지 않음';
         deviceMessage.textContent = error.name === 'NotAllowedError'
           ? '기기 인증이 취소됐거나 완료되지 않았습니다. 다시 시도해 주세요.'
@@ -393,7 +397,7 @@
       if (token === activeToken) return;
       activeToken = token;
       editor.hidden = true;
-      approvedToken = null;
+      accessGate.lock(offline() ? 'offline' : token ? 'unverified' : 'signed_out');
       deviceAbort?.abort();
       deviceBusy = false;
       deviceControls();

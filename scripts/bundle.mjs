@@ -79,11 +79,11 @@ try {
     if (config.restoreRoute !== '/api/restore' || !config.allowedRoutes.includes('POST /api/restore')) {
       fail('10단계 복구 경로와 허용 경로를 확인하세요.');
     }
-    const { RECOVERY_RULE_IDS } = await import(pathToFileURL(join(root, 'src', 'note-recovery.mjs')).href);
+    const { RECOVERY_RULE_IDS } = await import(pathToFileURL(join(root, 'src', 'policy-rule-ids.mjs')).href);
     policyRules.push(...RECOVERY_RULE_IDS);
   }
   if (config.step >= 11) {
-    const { DEVICE_RULE_IDS } = await import(pathToFileURL(join(root, 'src', 'device-approval.mjs')).href);
+    const { DEVICE_RULE_IDS } = await import(pathToFileURL(join(root, 'src', 'policy-rule-ids.mjs')).href);
     policyRules.push(...DEVICE_RULE_IDS);
   }
   if (policyRules.length > 80 || policyRules.some(item => typeof item !== 'string'
@@ -124,7 +124,7 @@ try {
   mkdirSync(join(root, 'artifacts'), { recursive: true });
   const output = join(root, 'artifacts', 'submission.json');
   writeFileSync(output, `${JSON.stringify(bundle, null, 2)}\n`, { encoding: 'utf8', flag: 'w' });
-  const notExecuted = attackAttempts.filter(attempt => /^(?:미실행|도구 시험 미실행)/u.test(attempt.observed)).length;
+  const notExecuted = attackAttempts.filter(attempt => /^(?:not_run|미실행|도구 시험 미실행)/u.test(attempt.observed)).length;
   process.stdout.write(`제출 묶음 JSON 생성: ${output}\n단계 ${bundle.step} · 커밋 ${commit.slice(0, 12)} · 바뀐 파일 ${changedFiles.length}개 · 규칙 ${policyRules.length}개 · 요청 점검 ${attackAttempts.length - notExecuted}개 · 미실행 ${notExecuted}개\n`);
 } catch (error) {
   process.stderr.write(`제출 묶음 생성 중 첫 오류: ${error.message}\n`);

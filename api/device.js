@@ -40,7 +40,12 @@ export default async function handler(request, response) {
     } catch { return reject(400, 'INVALID_DEVICE_REQUEST'); }
   }
   const authorization = request.headers?.authorization;
-  if (!authorization) return reject(401, 'LOGIN_REQUIRED');
+  if (!authorization) {
+    // A public, closed state lets the app and judge inspect the gate without
+    // an account, OS authenticator, database, or approval privilege.
+    if (request.method === 'GET') return response.status(200).json({ approved: false, state: 'signed_out' });
+    return reject(401, 'LOGIN_REQUIRED');
+  }
   let base;
   const secretKey = process.env.SUPABASE_SECRET_KEY;
   try {
