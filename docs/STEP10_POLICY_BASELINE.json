@@ -1,0 +1,15 @@
+{
+  "schema": "aleph.policy-baseline.v1",
+  "scope": "local_test",
+  "service": "notes",
+  "commit": "1b92fbab53958375a48cdd7ef0dc24890ebee77d",
+  "file": "src/decider.mjs",
+  "sha256": "fe68d4c4e039466cea2bf739de7669692655f3da5422ce662c25575c312250a6",
+  "verification": {
+    "kind": "local_regression",
+    "command": "node --experimental-vm-modules --test test/*.test.mjs",
+    "passed": 145,
+    "failed": 0,
+    "verifiedAt": "2026-10-13T06:44:20.185Z"
+  }
+}

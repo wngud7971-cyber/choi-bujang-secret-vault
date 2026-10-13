@@ -2,6 +2,7 @@ import config from '../aleph.config.json' with { type: 'json' };
 import { createLoginVerifier } from '../src/verify-login.mjs';
 import { randomUUID } from 'node:crypto';
 import { UUID, parseResourceTarget, recordResourceDenial } from '../src/resource-path.mjs';
+import { createBackedUpNote, isRecoveryIdentity } from '../src/note-recovery.mjs';
 
 let loginVerifier;
 let verifierKey;
@@ -90,6 +91,18 @@ export default async function handler(request, response) {
     } catch {
       return response.status(400).json({ error: 'INVALID_NOTE' });
     }
+  }
+
+  // Stage 10 creates B's new synthetic test note and its durable verified backup
+  // in one transaction. Students and test A retain the existing CRUD behavior.
+  if (config.step >= 10 && request.method === 'POST' && isRecoveryIdentity(identity)) {
+    try {
+      const result = await createBackedUpNote({ base: new URL(urlValue), secretKey, identity,
+        id, title: payload.title.trim(), content: payload.body });
+      return result.status === 'conflict'
+        ? response.status(409).json({ error: 'NOTE_ID_EXISTS' })
+        : response.status(201).json({ id: result.id });
+    } catch { return response.status(503).json({ error: 'RECOVERY_STORAGE_NOT_READY' }); }
   }
 
   // Apply owner and ID together in the database operation, avoiding a gap
