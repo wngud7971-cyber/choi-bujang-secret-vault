@@ -1,5 +1,17 @@
 # BYTE BACK · 6단계 저장점
 
+## 6단계 판정기 호환 수정 (현재)
+
+심판은 공개 커밋 `e51e2e0eb792`에서 `S06_DEVICE_RULE_MISSING`과 0/100점을 보고했습니다. 해당 커밋의 `src/decider.mjs`·XDR 연결·요청 계약·단계 설정은 로컬 첫 저장점과 같고, 실제 배포 식별 JSON도 단계 6·같은 공개 커밋이었습니다. 코드 누락·옛 배포는 확인된 원인이 아닙니다. 원인 후보는 서버 모듈 실행 제한, 외부에서 가져온 규칙 목록 인식, 응답 계약 문제였습니다. 일반 시험은 통과하지만 내장 모듈을 차단한 로컬 격리 실행은 `node:async_hooks` 의존성을 읽다 실패했습니다. 이 의존성 문제를 가장 가능성 높은 원인으로 수정했으며 실제 심판 내부 구현은 확인하지 못했습니다.
+
+`src/decider.mjs`는 import 없는 독립 판정기가 되어 엔진이 확인한 `deviceRegistered`가 정확히 true인 경우만 `allow`·`approved`, 그 밖에는 `deny`·`device_not_registered`를 반환합니다. 기기 등록 규칙의 의미와 요청·응답 계약은 유지합니다. 기존 XDR 검사 블록만 서버 연결부 `src/ztna.mjs`로 옮겨 실제 연결에서는 계속 무차별 로그인·웹 주입의 거부를 먼저 적용합니다. XDR 파일·기준·규칙 이름·만료·소켓 주소 확인과 앞 단계 기능·화면·DB·주소·설정·이전 기록을 보존합니다. 기존 `RULE_IDS` 세 개도 유지합니다.
+
+직접 확인: `npm run decider:test`에서 등록 기기는 `allow·approved`, 미등록 기기는 `deny·device_not_registered`로 모두 통과해야 합니다. 추가로 `node --experimental-vm-modules scripts/decider-isolation-check.mjs`를 실행하면 import 없이 격리 로드가 통과하고 등록·미등록·누락·null·문자열·숫자 6건의 결과가 출력됩니다. 현재 npm 실행기가 없어 같은 파일인 `node scripts/decider-test.mjs`를 실제 실행했습니다. 격리 시험은 호스트의 파일·네트워크·서버 문맥을 제공하지 않으며 실제 심판은 아닙니다.
+
+수정 후 전체 로컬 시험 `node --experimental-vm-modules --test test/*.test.mjs`는 90개 통과·실패 0입니다. 기존 XDR 차단, 만료 뒤 등록 기기 허용, 미등록 기기 거부, 정상 경보 요청 허용과 로그인·본인 메모 보호도 통과했습니다. 인증서·CA·실제 사용자 토큰·기기 개인키를 새로 만들거나 업로드하지 않습니다. 수정본을 기존 공개 저장소의 같은 경로에 업로드하고 Vercel 배포가 Ready가 된 뒤, `/aleph.json`의 단계 6·새 원격 커밋을 확인하고 같은 두 주소로 재제출합니다. 실제 심판의 수정본 통과는 아직 미확인입니다.
+
+## 6단계 첫 저장점 (이전 기록)
+
 6단계 「등록한 기기만 자료실에 들어옵니다」는 기존 `src/decider.mjs`의 `device_registered` 규칙을 사용합니다. `request.deviceRegistered === true`이면 `allow`·`approved`, 미등록·누락·참이 아닌 값은 `deny`·`device_not_registered`입니다. 이 규칙은 앞선 보너스 작업에서 이미 구현되어 있어 중복 추가하거나 다른 규칙을 바꾸지 않았습니다. `RULE_IDS`는 실제 구현인 `device_registered`, `xdr.brute_force.deny`, `xdr.web_injection.deny`를 유지합니다. 요청 18항목·응답 5항목 계약, 기존 로그인·본인 메모 CRUD·원본 DB 보호·화면·주소·DB 자료를 보존합니다.
 
 사용자는 엔진이 확인한 `request.subjectId`, 기기 등록 여부는 최상위 `request.deviceRegistered`로 전달됩니다. 인증서가 없는 mTLS 요청과 등록 기기·다른 사용자 토큰 조합은 운영 엔진이 먼저 검사합니다. 브라우저에서 기기 상태를 받아 판정기를 호출하는 API는 추가하지 않았습니다. 실제 미등록 기기 공격과 운영 통로 검증은 심판이 수행하며 별도 접속 프로그램 설치는 없습니다. 이번 제작에는 인증서·CA·기기 개인키·발급자 서명 키를 만들거나 제출하지 않습니다.
