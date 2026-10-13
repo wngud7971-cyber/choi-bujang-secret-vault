@@ -80,7 +80,8 @@ test('submission reads: observe 17 GET/HEAD requests and leave three authenticat
   assert.equal(records.length, 17);
   assert.equal(results.length, 20);
   assert.equal(results.filter(r => r.observed.startsWith('not_run')).length, 3);
-  assert.ok(results.slice(0, 17).every(r => r.observed.includes('jsonReady=true')));
+  assert.deepEqual(results.slice(0, 17).map(r => r.observed),
+    [200, 200, 401, 401, 401, 401, 401, 405, 200, 200, 200, 200, 200, 200, 200, 400, 200].map(status => `HTTP ${status}`));
   assert.ok(records.every(r => r.alephEvidence.caseId && r.alephEvidence.requestKey === 'read'));
   assert.ok(!JSON.stringify(results).includes('Bearer'));
 });
@@ -96,10 +97,25 @@ test('submission reads: offline makes no requests; network exceptions do not bec
   assert.ok(!JSON.stringify(failed).includes('DO_NOT_EMIT'));
 });
 test('submission reads: stale deployment and data inside denial replies are reported without their bodies', async () => {
-  const results = await runReadChecks(config, { expectedCommit: commit, fetcher: deploymentFetch([], { stale: true, leak: true }) });
-  assert.match(results[0].observed, /jsonReady=false/u);
-  assert.match(results.find(r => r.attackId === 'anonymous_api_note_read').observed, /jsonReady=false/u);
+  const observations = [];
+  const results = await runReadChecks(config, { expectedCommit: commit,
+    fetcher: deploymentFetch([], { stale: true, leak: true }), onObservation: row => observations.push(row) });
+  assert.equal(results[0].observed, 'HTTP 200');
+  assert.equal(results.find(r => r.attackId === 'anonymous_api_note_read').observed, 'HTTP 401');
+  assert.equal(observations[0].matchesExpected, false);
+  assert.equal(observations.find(r => r.id === 'anonymous_api_note_read').matchesExpected, false);
   assert.ok(!JSON.stringify(results).includes('DO_NOT_EMIT_RESPONSE_BODY'));
+});
+
+test('submission evidence uses only HTTP status exposed by a masked response; diagnostics never become response claims', async () => {
+  const observations = [];
+  const results = await runReadChecks(config, { expectedCommit: commit, onObservation: row => observations.push(row),
+    fetcher: async () => new Response('{}', { status: 202 }) });
+  assert.equal(results.length, 20);
+  assert.ok(results.slice(0, 17).every(row => row.observed === 'HTTP 202'));
+  assert.ok(results.slice(17).every(row => row.observed.startsWith('not_run:')));
+  assert.doesNotMatch(JSON.stringify(results), /bodyBytes|jsonReady|method=|matchesExpected|checkedAt|responseBytes/u);
+  assert.ok(observations.every(row => row.matchesExpected === false));
 });
 test('submission isolation: no Node imports, local programs, DB, authenticator or timers in the stage 11 path', async () => {
   const records = [];
