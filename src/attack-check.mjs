@@ -63,15 +63,15 @@ async function runDeviceChecks(config, app, expectedCommit) {
       { attackId: 'step_up_before_relogin_data', expected: '계약이 준비된 실제 엔진에서 추가 확인 전 자료를 반환하지 않아야 함',
         observed: '미실행: 같은 주체의 새 로그인 시각을 확인하는 엔진 계약·운영 연결이 제공되지 않음. 가상 step_up 판정만 시험' },
       { attackId: 'step_up_after_relogin_request', expected: '엔진이 요청 이후 새 로그인을 검증한 뒤 새 자료 요청을 다시 판정',
-        observed: '미실행: 새 로그인 시각·추가 확인 요청의 결합 계약이 없음. verified와 authAgeSeconds만으로 허용하지 않음' },
+        observed: '미실행: 새 로그인 시각·추가 확인 요청의 결합 계약이 없음. 가상 재확인 판정을 실제 재로그인 검증으로 대신하지 않음' },
     );
   }
   const fixtureIds = ['registered_device_fixture', 'unregistered_device_fixture',
-    'compound_connection_fixture', 'unverified_relogin_fixture'];
+    'compound_connection_fixture', 'verified_reconfirmation_fixture'];
   const fixtureExpected = ['로컬 가상 요청: 등록 기기는 allow·approved',
     '로컬 가상 요청: 미등록 기기는 deny·device_not_registered',
     '로컬 가상 요청: 복합 이상 접속은 step_up·step_up_required',
-    '로컬 가상 요청: 새 로그인 시각 검증 없는 확인 표시는 step_up 유지'];
+    '로컬 가상 요청: 엔진의 유효한 재확인 상태가 있는 복합 사건은 allow·approved; 실제 재로그인 시험 아님'];
   return [
     ...localResults.map((result, index) => ({
       attackId: fixtureIds[index],

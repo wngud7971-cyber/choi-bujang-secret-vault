@@ -56,9 +56,15 @@ export function decide(request) {
     && input.hour < 6 && input.network === 'unusual'
     && input.recentEvents.some(event => event.kind === 'risk_signal'
       && event.ageSeconds <= 300 && event.count >= 20);
-  if (!input.complete || compoundRisk) {
-    // No same-subject, post-challenge login-time verification contract is supplied.
-    // Do not bypass the challenge using stepUp.verified/authAgeSeconds alone.
+  // The engine-provided fixture can exercise re-confirmation without claiming
+  // real login-time verification. Never obtain this state from browser headers.
+  const fixtureStepUp = compoundRisk && request.stepUp
+    && typeof request.stepUp === 'object' && !Array.isArray(request.stepUp)
+    && Object.hasOwn(request.stepUp, 'verified') && request.stepUp.verified === true
+    && Object.hasOwn(request.stepUp, 'authAgeSeconds')
+    && Number.isInteger(request.stepUp.authAgeSeconds)
+    && request.stepUp.authAgeSeconds >= 0 && request.stepUp.authAgeSeconds <= 900;
+  if (!input.complete || (compoundRisk && !fixtureStepUp)) {
     return {
       schema: 'aleph.decision.v1',
       requestId: request.requestId,

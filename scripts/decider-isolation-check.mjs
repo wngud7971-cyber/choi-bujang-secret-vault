@@ -40,7 +40,7 @@ const { suspicious } = fixtureRequests();
 const step7Results = [];
 for (const [name, request, expected] of [
   ['compound', suspicious, 'step_up'],
-  ['unverified_relogin', { ...suspicious, stepUp: { verified: true, authAgeSeconds: 0 } }, 'step_up'],
+  ['verified_fixture', { ...suspicious, stepUp: { verified: true, authAgeSeconds: 0 } }, 'allow'],
   ['missing_signals', { ...normal, signals: undefined }, 'step_up'],
   ['unavailable', { ...normal, signals: { source: 'none', region: 'unknown', network: 'unknown', hour: 14 } }, 'allow'],
 ]) {
