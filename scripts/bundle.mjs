@@ -54,7 +54,7 @@ try {
       || !config.originalApiUrl.startsWith('https://'))) {
     fail('5단계부터 aleph.config.json의 originalApiUrl에 원본 자료 API의 HTTPS 주소가 필요합니다. 5단계 제작 2를 다시 확인해 주세요.');
   }
-  if (config.step === 5) {
+  if (config.step >= 5) {
     const original = new URL(config.originalApiUrl);
     if (original.protocol !== 'https:' || original.username || original.password
         || original.search || original.hash

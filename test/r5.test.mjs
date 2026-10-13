@@ -37,7 +37,9 @@ test('build identity uses Vercel Git and deployment metadata', () => {
   assert.ok(!Object.hasOwn(deploymentIdentity(env, { ...config, step: 4 }), 'sampleMarker'));
   assert.equal(deploymentIdentity(env, { ...config, step: 5 }).step, 5);
   assert.ok(!Object.hasOwn(deploymentIdentity(env, { ...config, step: 5 }), 'sampleMarker'));
-  assert.throws(() => deploymentIdentity(env, { ...config, step: 6 }));
+  assert.equal(deploymentIdentity(env, { ...config, step: 6 }).step, 6);
+  assert.ok(!Object.hasOwn(deploymentIdentity(env, { ...config, step: 6 }), 'sampleMarker'));
+  assert.throws(() => deploymentIdentity(env, { ...config, step: 7 }));
 });
 
 test('first attack check reads public data.json without credentials', async () => {
@@ -231,4 +233,52 @@ test('stage 3 records actual anonymous rejection probes separately from unexecut
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('stage 6 runs actual device fixtures and distinguishes transport checks and stale deployment without signing tokens', async () => {
+  const originalFetch = globalThis.fetch;
+  const stage6 = { ...config, step: 6, repoUrl: 'https://github.com/student-a/aleph-defense',
+    originalApiUrl: 'https://training-project.supabase.co/rest/v1/training_notes',
+    allowedRoutes: ['GET /api/notes', 'POST /api/notes'],
+    identityProvider: { issuer: 'https://training-project.supabase.co/auth/v1', audience: 'authenticated' } };
+  const expectedCommit = 'a'.repeat(40);
+  let identity = { schema: 'aleph.defense.deployment.v1', step: 6,
+    repoUrl: stage6.repoUrl, commit: expectedCommit, originalApiUrl: stage6.originalApiUrl,
+    allowedRoutes: stage6.allowedRoutes };
+  let calls = 0;
+  try {
+    globalThis.fetch = async (url, init) => {
+      calls++;
+      assert.equal(init.body, undefined);
+      assert.equal(init.headers, undefined);
+      assert.equal(init.method, undefined);
+      assert.equal(init.redirect, 'error');
+      if (url.pathname === '/') return new Response('<html>existing screen</html>');
+      if (url.pathname === '/data.json') return Response.json({ notes: [] });
+      if (url.pathname === '/aleph.json') return Response.json(identity);
+      return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
+    };
+    const checks = await runAttackChecks(stage6, { expectedCommit });
+    const find = id => checks.find(check => check.attackId === id);
+    assert.equal(calls, 4);
+    assert.equal(checks.length, 9);
+    assert.match(find('registered_device_fixture').observed, /시험 통과: allow·approved/u);
+    for (const id of ['unregistered_device_fixture', 'missing_device_registration_fixture']) {
+      assert.match(find(id).observed, /시험 통과: deny·device_not_registered/u);
+    }
+    for (const id of ['mtls_without_client_certificate', 'device_subject_mismatch']) {
+      assert.match(find(id).observed, /^미실행/u);
+    }
+    assert.match(find('deployment_stage6_identity').observed, /배포 식별 정보 일치/u);
+    assert.ok(!JSON.stringify(checks).includes('existing screen'));
+    assert.ok(!JSON.stringify(checks).includes('Bearer '));
+    identity = { ...identity, step: 5 };
+    const stale = await runAttackChecks(stage6, { expectedCommit });
+    assert.match(stale.find(check => check.attackId === 'deployment_stage6_identity').observed, /^불일치/u);
+    globalThis.fetch = async () => { throw new Error('DO_NOT_INCLUDE_RESPONSE_BODY'); };
+    const unavailable = await runAttackChecks(stage6, { expectedCommit });
+    assert.ok(unavailable.slice(0, 3).every(check => check.observed.startsWith('로컬 가상 시험 통과')));
+    assert.ok(unavailable.slice(5).every(check => check.observed.startsWith('미확인')));
+    assert.ok(!JSON.stringify(unavailable).includes('DO_NOT_INCLUDE_RESPONSE_BODY'));
+  } finally { globalThis.fetch = originalFetch; }
 });
