@@ -43,10 +43,18 @@ export function normalizeDetectionEvent(event) {
   const rawNetwork = field(signals, 'network');
   const network = source === 'judge_fixture' && ['usual', 'unusual'].includes(rawNetwork)
     ? rawNetwork : 'unknown';
+  // The published detection exercise sends only at/method/identity.sub.
+  // Do not require decision-request fields that are absent from that contract.
+  // An explicit device/network field keeps an event in the stricter device
+  // mode, even when malformed or incomplete; it cannot use the legacy path.
+  const contract = subjectId === undefined && legacySubject !== undefined
+    && ['subjectId', 'deviceId', 'deviceRegistered', 'signals', 'requestId',
+      'classId', 'projectId', 'decision'].every(key => !Object.hasOwn(event, key))
+    ? 'legacy' : 'device';
   return { at: new Date(timestamp).toISOString(), subjectId: subject, deviceId,
     deviceRegistered: registered, method, decision: decision ?? null,
     requestId: requestId?.toLowerCase() ?? null, classId: classId ?? null, projectId: projectId ?? null,
-    signals: { source: source === 'judge_fixture' ? 'judge_fixture' : 'none', network } };
+    signals: { source: source === 'judge_fixture' ? 'judge_fixture' : 'none', network }, contract };
 }
 
 export function normalizeDetectionEvents(events) {
@@ -81,20 +89,26 @@ export function detect(events) {
       if (conflicts.has(key) || seen.has(key)) return false;
       seen.add(key);
     }
-    return event.method === 'GET' && event.deviceId !== null && event.deviceRegistered
-      && event.signals.source === 'judge_fixture' && event.signals.network === 'unusual';
+    return event.method === 'GET' && (event.contract === 'legacy'
+      || (event.deviceId !== null && event.deviceRegistered
+        && event.signals.source === 'judge_fixture' && event.signals.network === 'unusual'));
   }).sort((a, b) => a.at.localeCompare(b.at)
-    || a.subjectId.localeCompare(b.subjectId) || a.deviceId.localeCompare(b.deviceId));
+    || a.subjectId.localeCompare(b.subjectId) || (a.deviceId ?? '').localeCompare(b.deviceId ?? ''));
   for (const event of eligible) {
-    const key = JSON.stringify([event.classId, event.projectId, event.subjectId, event.deviceId]);
+    const key = JSON.stringify([event.contract, event.classId, event.projectId, event.subjectId, event.deviceId]);
     const times = groups.get(key) ?? [];
     const now = Date.parse(event.at);
     // Keep at most 121 timestamps per identity/device; no raw event is retained.
     while (times.length && now - times[0] > READ_WINDOW_MS) times.shift();
     times.push(now);
     groups.set(key, times);
-    if (times.length > READ_LIMIT) return { action: 'propose_revocation',
-      reasonCode: 'burst_read', subject: event.subjectId, deviceId: event.deviceId };
+    if (times.length > READ_LIMIT) {
+      const result = { action: 'propose_revocation', reasonCode: 'burst_read', subject: event.subjectId };
+      // Preserve the exact published response for the three-field exercise.
+      // Never invent a device ID from its subject or a browser-supplied value.
+      if (event.contract === 'device') result.deviceId = event.deviceId;
+      return result;
+    }
   }
   return { action: 'observe' };
 }

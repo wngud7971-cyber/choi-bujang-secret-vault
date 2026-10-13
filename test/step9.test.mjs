@@ -26,7 +26,7 @@ test('9단계 입력: 비밀값·실명·본문·경로·주소·헤더·접근�
   assert.equal(safe.length, 121);
   assert.ok(!JSON.stringify(safe).includes('SECRET_NAME_SENTINEL'));
   assert.deepEqual(Object.keys(safe[0]).sort(),
-    ['at', 'subjectId', 'deviceId', 'deviceRegistered', 'method', 'decision', 'requestId', 'classId', 'projectId', 'signals'].sort());
+    ['at', 'subjectId', 'deviceId', 'deviceRegistered', 'method', 'decision', 'requestId', 'classId', 'projectId', 'signals', 'contract'].sort());
   assert.deepEqual(detect(events), proposal());
 });
 
@@ -86,7 +86,31 @@ test('9단계 결정: 가장 먼저 임계치를 넘은 기기 한 개만 제안
 });
 
 test('9단계 격리: 외부 모듈·서버·파일·네트워크 없이 가상 탐지 실행', async () => {
-  assert.deepEqual(await checkDetectionIsolation(), { count: 22, passed: true });
+  assert.deepEqual(await checkDetectionIsolation(), { count: 27, passed: true });
+});
+
+test('9단계 공식 사건: 잘못된 확장 입력은 기기 없는 공식 연습으로 우회하지 못함', () => {
+  const legacy = reads(200).map(({ at, method, subjectId }) => ({ at, method, identity: { sub: subjectId } }));
+  for (const changes of [{ deviceId: undefined }, { deviceId: null }, { deviceId: 'invalid' }, { deviceRegistered: false },
+    { signals: null }, { signals: { source: 'browser', network: 'unusual' } },
+    { signals: { source: 'none', network: 'unknown' } }, { decision: 'allow' }, { subjectId: 'learner_fixture' }]) {
+    assert.deepEqual(detect(legacy.map(event => ({ ...event, ...changes }))), { action: 'observe' });
+  }
+  for (const event of legacy) Object.defineProperty(event, 'signals', { get() { throw new Error('must_not_read'); } });
+  assert.deepEqual(detect(legacy), { action: 'observe' });
+});
+
+test('9단계 공식 사건: 확장 사건과 합산하지 않고 비밀값이나 가짜 기기 ID를 내보내지 않음', () => {
+  const legacy = reads(100).map(({ at, method, subjectId }) => ({ at, method, identity: { sub: subjectId } }));
+  assert.deepEqual(detect([...legacy, ...reads(100)]), { action: 'observe' });
+  const events = reads(121).map(({ at, method, subjectId }) => {
+    const event = { at, method, identity: { sub: subjectId } };
+    for (const key of ['token', 'body', 'realName', 'headers', 'path']) {
+      Object.defineProperty(event, key, { get() { throw new Error('must_not_read'); } });
+    }
+    return event;
+  });
+  assert.deepEqual(detect(events), { action: 'propose_revocation', reasonCode: 'burst_read', subject: 'learner_fixture' });
 });
 
 test('9단계 제출: 20개 점검 제한·기존 방어·운영 미실행과 offline 무접속을 보존', async () => {

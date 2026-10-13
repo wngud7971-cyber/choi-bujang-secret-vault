@@ -28,8 +28,8 @@ async function runDetectionChecks(config, app, expectedCommit, options) {
   }
   const detection = await checkDetection(detect);
   for (const [group, expected] of [
-    ['compound', '복합 이상은 확인된 가상 기기 한 개와 burst_read 이유의 회수 제안; 자원 이동에도 같은 기기 단위'],
-    ['normal', '정상·지역 단독·평소 네트워크 폭주·정보 누락·미등록·브라우저 신호는 회수 제안 없음'],
+    ['compound', '공식 세 항목 연습의 폭주 조회는 burst_read·subject 제안, 확장 복합 사건은 확인된 기기 한 개의 제안'],
+    ['normal', '정상·지역 단독·평소 네트워크 폭주·확장 입력 정보 누락·미등록·브라우저 신호는 회수 제안 없음'],
     ['boundary', '120/121·10분 경계·시간 순서·사용자/기기 분리·중복 요청 처리'],
   ]) {
     const executed = detection.filter(item => item.group === group);
