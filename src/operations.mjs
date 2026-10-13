@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs';
 import config from '../aleph.config.json' with { type: 'json' };
 import evidence from '../docs/STEP12_EVIDENCE.json' with { type: 'json' };
 import baseline from '../docs/STEP10_POLICY_BASELINE.json' with { type: 'json' };
-import { RULE_IDS } from '../src/decider.mjs';
-import { DETECTION_RULE_IDS } from '../src/detect.mjs';
-import { DEVICE_RULE_IDS, RECOVERY_RULE_IDS } from '../src/policy-rule-ids.mjs';
+import { RULE_IDS } from './decider.mjs';
+import { DETECTION_RULE_IDS } from './detect.mjs';
+import { DEVICE_RULE_IDS, RECOVERY_RULE_IDS } from './policy-rule-ids.mjs';
 import { summarize } from '../public/operations-model.js';
 
 export function operationsSnapshot() {
