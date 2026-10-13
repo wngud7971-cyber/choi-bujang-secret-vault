@@ -206,7 +206,7 @@ test('whole submission isolation: the actual bundle script finishes with git-rea
   await script.evaluate({ timeout: 3000 });
   assert.notEqual(mockProcess.exitCode, 1, messages.join('\n'));
   const bundle = JSON.parse(written.get(join(root, 'artifacts', 'submission.json')));
-  assert.equal(bundle.step, 11);
+  assert.equal(bundle.step, config.step);
   assert.equal(bundle.commit, commit);
   assert.equal(bundle.policyRules.length, 14);
   assert.equal(bundle.attackAttempts.length, 20);

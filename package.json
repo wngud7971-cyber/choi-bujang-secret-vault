@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "operations:check": "node scripts/operations-check.mjs",
+    "test:12": "node --experimental-vm-modules --test test/step12.test.mjs test/build-public.test.mjs test/step11-redesign.test.mjs",
     "test:11": "node --experimental-vm-modules --test test/step11-device.test.mjs test/auth-ui.test.mjs test/step11-app.test.mjs test/step11-redesign.test.mjs",
     "policy:prepare": "node scripts/prepare-policy-test.mjs",
     "policy:preview": "node scripts/policy-preview.mjs",
