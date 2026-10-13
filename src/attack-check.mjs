@@ -9,15 +9,15 @@ import { checkZones } from '../scripts/fixture-8.mjs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-async function runZoneChecks(config, app, expectedCommit) {
-  const prior = await runDeviceChecks(config, app, expectedCommit);
+async function runZoneChecks(config, app, expectedCommit, { offline = false } = {}) {
+  const prior = await runDeviceChecks(config, app, expectedCommit, { offline });
   const zones = await checkZones(decide);
   // Keep the v2 submission's 20-item limit, grouping related executed requests.
   const groups = [
-    ['own_zone_fixture', ['self_note_read', 'self_note_edit', 'self_note_list'], '본인 메모 조회·수정·목록 허용'],
+    ['own_zone_fixture', ['self_note_read', 'self_note_edit', 'self_note_list', 'legacy_note_read', 'legacy_note_edit'], '본인 메모 조회·수정·본인 구역 목록과 기존 단건 경로 허용'],
     ['foreign_zone_fixture', ['foreign_note_read', 'foreign_note_edit', 'foreign_note_list'], '다른 사용자 메모 조회·수정·목록 거부'],
-    ['announcement_zone_fixture', ['student_notice_edit', 'authenticated_notice_read'], '학생 공지 수정 거부·로그인 공지 조회 허용'],
-    ['unknown_route_and_query_fixture', ['unknown_resource_path', 'query_operation_switch'], '알 수 없는 경로와 기능 쿼리 거부'],
+    ['announcement_zone_fixture', ['student_notice_edit', 'authenticated_notice_read', 'announcement_post', 'announcement_patch', 'announcement_delete'], '공지의 모든 쓰기 거부·로그인 공지 조회 허용'],
+    ['unknown_route_and_query_fixture', ['unknown_resource_path', 'query_operation_switch', 'aggregate_note_list'], '알 수 없는 경로·기능 쿼리·소유자 없는 전체 목록 거부'],
   ];
   const results = groups.map(([attackId, names, expected]) => {
     const executed = zones.filter(result => names.includes(result.name));
@@ -42,8 +42,8 @@ async function runZoneChecks(config, app, expectedCommit) {
     ['anonymous_announcement_read', `/api/announcements/${id}`, 'GET'],
     ['anonymous_announcement_edit', `/api/announcements/${id}`, 'PUT'],
   ]) {
-    let observed = '미확인: 요청 실패 또는 시간 초과';
-    try {
+    let observed = offline ? '미실행: 사용자가 수정 ZIP을 업로드·재배포한 뒤 직접 확인 예정' : '미확인: 요청 실패 또는 시간 초과';
+    if (!offline) try {
       const response = await fetch(new URL(path, app), { method,
         redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(10000) });
       const data = await response.json().catch(() => null);
@@ -55,14 +55,14 @@ async function runZoneChecks(config, app, expectedCommit) {
   }
   results.push({ attackId: 'resource_api_live_accounts', expected: '배포 후 실제 A/B 본인 정상·교차 구역 거부와 저장된 강사 공지 수정 확인',
     observed: '미실행: 실제 계정 토큰과 DB 변경을 자동 생성하지 않음. 운영 DB 설정·강사 권한·엔진 주체 연결은 별도 확인 필요' });
-  results.push({ attackId: 'engine_instructor_grant_contract', expected: '엔진이 검증한 강사 권한이 있을 때만 공지 수정 허용',
-    observed: '미실행: 현재 18항목 엔진 계약에 강사 권한이 없음. 판정기는 공지 수정을 거부하며 API의 저장된 강사 허용과 구분' });
+  results.push({ attackId: 'engine_resource_routing_live', expected: '실제 엔진에서 기존 정상 단건 허용·전체 목록과 공지 모든 쓰기 거부',
+    observed: '미실행: 수정본의 운영 엔진 재판정은 사용자 업로드 뒤 확인. API의 저장된 강사 정상 수정과 엔진의 공지 쓰기 거부를 구분' });
   return [...prior, ...results];
 }
 
 // Stages 6/7 exercise the engine contract locally, without creating signing keys.
 // Transport authentication and device/subject binding remain the engine's job.
-async function runDeviceChecks(config, app, expectedCommit) {
+async function runDeviceChecks(config, app, expectedCommit, { offline = false } = {}) {
   const localResults = await checkDecider({ decide, ruleIds: RULE_IDS, includeStepUp: config.step >= 7 });
   const { deviceRegistered: omitted, ...missingRequest } = fixtureRequests().normal;
   const missing = await decide(missingRequest);
@@ -72,6 +72,7 @@ async function runDeviceChecks(config, app, expectedCommit) {
     && missing.decision === 'deny' && missing.reasonCode === 'device_not_registered'
     && Array.isArray(missing.ruleIds) && missing.ruleIds.includes('device_registered');
   const request = async path => {
+    if (offline) return { status: 0, data: null };
     try {
       const response = await fetch(new URL(path, app), {
         redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(10000),
@@ -83,7 +84,7 @@ async function runDeviceChecks(config, app, expectedCommit) {
   const [page, publicData, anonymous, deployment] = await Promise.all(
     ['/', '/data.json', '/api/notes', '/aleph.json'].map(request),
   );
-  const failed = '미확인: 요청 실패 또는 시간 초과';
+  const failed = offline ? '미실행: 사용자 직접 업로드·재배포 후 확인 예정' : '미확인: 요청 실패 또는 시간 초과';
   const safePage = page.status === 200 && typeof page.data === 'string'
     && !/-----BEGIN [A-Z ]*PRIVATE KEY-----|\bsb_(?:secret|publishable)_[A-Za-z0-9_-]{12,}|\bsk-[A-Za-z0-9_-]{20,}|\beyJ[A-Za-z0-9_-]{12,}\.eyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{8,}/u.test(page.data)
     && !page.data.includes(config.sampleMarker);
@@ -156,7 +157,7 @@ async function runDeviceChecks(config, app, expectedCommit) {
   ];
 }
 
-export async function runAttackChecks(config, { expectedCommit, publicDataApiKey = process.env.SUPABASE_PUBLISHABLE_KEY } = {}) {
+export async function runAttackChecks(config, { expectedCommit, publicDataApiKey = process.env.SUPABASE_PUBLISHABLE_KEY, offline = false } = {}) {
   if (![1, 2, 3, 4, 5, 6, 7, 8].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
@@ -169,8 +170,8 @@ export async function runAttackChecks(config, { expectedCommit, publicDataApiKey
     throw new Error('aleph.config.json의 실제 배포 주소를 먼저 넣어 주세요.');
   }
   if (typeof config.sampleMarker !== 'string' || !config.sampleMarker) throw new Error('가상 메모의 확인 표시를 넣어 주세요.');
-  if (config.step === 8) return runZoneChecks(config, app, expectedCommit);
-  if (config.step >= 6) return runDeviceChecks(config, app, expectedCommit);
+  if (config.step === 8) return runZoneChecks(config, app, expectedCommit, { offline });
+  if (config.step >= 6) return runDeviceChecks(config, app, expectedCommit, { offline });
   if (config.step >= 3) {
     const probeId = randomUUID();
     const notePath = `/api/notes/${probeId}`;

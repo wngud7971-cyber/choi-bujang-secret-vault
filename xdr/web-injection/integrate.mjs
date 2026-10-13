@@ -95,8 +95,7 @@ export async function afterRun({ root, alerts, decisions, jev = null }) {
     const connected = createZtnaConnection({ rules: async () => documents, clock: () => row.timestamp });
     const response = await connected({ schema: 'aleph.decision.v1', requestId: randomUUID(),
       classId: 'class_fixture', projectId: 'project_fixture', subjectId: 'learner_fixture',
-      deviceId: 'a'.repeat(16), service: 'notes', method: 'GET',
-      path: '/notes/owners/learner_fixture/44444444-4444-4444-8444-444444444444', route: 'GET /notes/owners/:ownerId/:id',
+      deviceId: 'a'.repeat(16), service: 'notes', method: 'GET', path: '/notes/demo', route: 'GET /notes/:id',
       queryLength: 0, querySha256: createHash('sha256').update('').digest('hex'),
       at: row.timestamp, policyRevision: 1, deviceRegistered: true,
       stepUp: { verified: false, authAgeSeconds: null }, recentEvents: [],

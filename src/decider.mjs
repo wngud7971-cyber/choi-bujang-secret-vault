@@ -8,8 +8,8 @@ export const RULE_IDS = Object.freeze([
 ]);
 
 // User-zone IDs are the ENGINE'S opaque subject IDs, never Supabase UUIDs.
-// A bare legacy note ID has no owner evidence here and is denied. The final API
-// keeps its existing addresses and checks the stored owner independently.
+// Single-note owner checks belong to the final API. Keep legacy exact routes
+// usable; deny aggregate lists and every teacher-zone write at this boundary.
 export function inspectResourceInput(request) {
   const path = request?.path;
   const method = request?.method;
@@ -28,11 +28,21 @@ export function inspectResourceInput(request) {
   const notes = `${root}/notes`;
   const notices = `${root}/announcements`;
   if (path === notes) {
-    // This endpoint has an implicit self scope; its API always filters the
-    // authenticated owner. A query cannot select another owner or operation.
-    return ['GET', 'POST'].includes(method) && request.route === `${method} ${notes}`
-      ? { allowed: true, ruleId: 'resource.note_owner', resourceId: 'notes:self' }
+    // The engine has no owner evidence for a collection. The API's personal
+    // list remains available at its existing address, with its own owner filter.
+    return method === 'POST' && request.route === `POST ${notes}`
+      ? { allowed: true, ruleId: 'resource.exact_route', resourceId: 'notes:create' }
       : invalid('resource.exact_route');
+  }
+  const single = new RegExp(`^${notes}/([A-Za-z0-9_-]{1,128})$`, 'u').exec(path);
+  const reserved = ['all', 'list', 'export', 'search', 'batch', 'bulk', 'download',
+    'owners', 'announcements', 'notices', 'teacher', 'instructor', 'admin', 'class'];
+  if (single && !reserved.includes(single[1].toLowerCase())
+      && ['GET', 'PUT', 'DELETE'].includes(method)
+      && request.route === `${method} ${notes}/:id`) {
+    // A's and B's requests can reach this exact single-resource operation, but
+    // the API's atomic owner condition independently denies a foreign record.
+    return { allowed: true, ruleId: 'resource.exact_route', resourceId: `notes:${single[1]}` };
   }
   const own = new RegExp(`^${notes}/owners/([A-Za-z0-9_-]{1,160})(?:/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}))?$`, 'u').exec(path);
   if (own) {

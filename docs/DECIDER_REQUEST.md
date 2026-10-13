@@ -28,10 +28,11 @@
 
 기존 18항목을 유지합니다. `service: notes`에서 메모와 공지는 서로 다른 경로와 자원 ID로 구분합니다. `deviceRegistered`가 true이고 deviceId 형식이 유효해야 하며 정확한 메서드·경로·route를 모두 대조합니다.
 
-- `/notes` GET/POST: 최종 API가 검증된 계정의 소유자 범위만 사용하는 본인 목록·생성.
+- `/notes/:id` GET/PUT/DELETE: 기존 정상 단건 경로를 허용하고 소유자 비교는 최종 API가 수행. 기능 이름 ID는 거부.
+- `/notes` POST: 검증된 계정의 메모 생성. GET 전체 목록은 판정기에서 거부. 최종 API의 기존 본인 목록 주소는 보존.
 - `/notes/owners/:ownerId` GET/POST, `/notes/owners/:ownerId/:id` GET/PUT/DELETE: ownerId와 엔진 subjectId를 정확히 비교. 상세 id는 UUID만 허용.
 - `/announcements` GET, `/announcements/:id` GET: 로그인 신원·기기 검사가 앞선 공지 읽기.
-- 공지 POST/PUT: 현재 엔진에는 검증된 강사 권한이 없어 기본 거부. 브라우저 role·가상 출처·subjectId 이름으로 권한을 만들지 않음.
+- 공지 POST/PUT/PATCH/DELETE: 심판 안내대로 모두 거부. 현재 계약에 역할이 없으며 브라우저 role·가상 출처·subjectId 이름으로 권한을 만들지 않음.
 - 같은 경로의 `/api` 접두사도 지원하지만 실제로 일치하는 route만 허용. 알 수 없는 경로·메서드·서비스·인코딩·이동·중복 구분자는 거부.
 
 쿼리는 원문이 제공되지 않으므로 엔진에서 0길이와 빈 문자열 SHA-256만 허용합니다. 최종 API에서만 단일 UUID id 선택 쿼리를 지원하며 기능이나 소유자 쿼리는 거부합니다. 이는 엔진의 쿼리 선택 지원을 의미하지 않습니다.
