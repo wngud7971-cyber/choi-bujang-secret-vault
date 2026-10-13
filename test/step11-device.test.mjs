@@ -8,7 +8,8 @@ import { generateKeyPair, exportJWK, SignJWT } from 'jose';
 import config from '../aleph.config.json' with { type: 'json' };
 import { createDeviceService, enforceDeviceRequest, bodyHash, sha256 } from '../src/device-approval.mjs';
 import notes from '../api/notes.js';
-import deviceApi from '../api/device/[action].js';
+import deviceApi from '../api/device.js';
+import legacyDeviceApi from '../api/device/[action].js';
 
 const b64 = bytes => Buffer.from(bytes).toString('base64url');
 const hashBytes = text => Buffer.from(sha256(text), 'hex');
@@ -146,8 +147,8 @@ test('stage 11 real WebAuthn signatures, PostgreSQL approval and protected APIs'
       for (const url of [`/api/device/${action}`, `/api/device/${action}?action=${action}`,
         `/api/device/[action]?action=${action}`, '/api/device/[action]']) {
         const response = recorder();
-        await deviceApi({ method: action === 'status' ? 'GET' : 'POST', url,
-          query: { action }, headers: {} }, response);
+        await legacyDeviceApi({ method: action === 'status' ? 'GET' : 'POST', url, body: {},
+          query: { action }, headers: { 'content-type': 'application/json' } }, response);
         assert.equal(response.statusCode, 401, url);
         assert.equal(response.body.error, 'LOGIN_REQUIRED');
       }
@@ -155,12 +156,31 @@ test('stage 11 real WebAuthn signatures, PostgreSQL approval and protected APIs'
     for (const url of ['/api/device/status?action=register', '/api/device/status?action=status&action=status',
       '/api/device/status?approved=true']) {
       const response = recorder();
-      await deviceApi({ method: 'GET', url, headers: {} }, response);
+      await legacyDeviceApi({ method: 'GET', url, headers: {} }, response);
       assert.equal(response.statusCode, 400);
     }
     const unknown = recorder();
-    await deviceApi({ method: 'POST', url: '/api/device/approve', headers: {} }, unknown);
+    await legacyDeviceApi({ method: 'POST', url: '/api/device/approve', headers: {} }, unknown);
     assert.equal(unknown.statusCode, 404);
+    for (const action of ['register', 'finish', 'options', 'verify']) {
+      const response = recorder();
+      await deviceApi({ method: 'POST', url: '/api/device', body: { action },
+        headers: { 'content-type': 'application/json' } }, response);
+      assert.equal(response.statusCode, 401);
+    }
+    for (const body of [{ action: 'approve' }, { action: 'register', approved: true },
+      { action: 'register', ownerId: identity.userId }, { action: 'register', state: 'approved' },
+      { action: 'status' }, {}]) {
+      const response = recorder();
+      await deviceApi({ method: 'POST', url: '/api/device', body,
+        headers: { 'content-type': 'application/json' } }, response);
+      assert.equal(response.statusCode, 400);
+    }
+    for (const url of ['/api/device?action=register', '/api/device?approved=true']) {
+      const response = recorder();
+      await deviceApi({ method: 'GET', url, headers: {} }, response);
+      assert.equal(response.statusCode, 400);
+    }
     const previousFetch = globalThis.fetch;
     const previousUrl = process.env.SUPABASE_URL;
     const previousKey = process.env.SUPABASE_SECRET_KEY;
@@ -225,7 +245,7 @@ test('stage 11 real WebAuthn signatures, PostgreSQL approval and protected APIs'
       assert.equal(putResponse.body.error, 'DEVICE_REQUEST_CHANGED');
       assert.equal(noteReads, 1);
       const response = recorder();
-      await deviceApi({ method: 'GET', url: '/api/device/status', headers: { authorization } }, response);
+      await deviceApi({ method: 'GET', url: '/api/device', headers: { authorization } }, response);
       assert.equal(response.statusCode, 200);
       assert.equal(response.body.approved, false);
       const beforeRevocation = await proof();
@@ -249,5 +269,65 @@ test('stage 11 real WebAuthn signatures, PostgreSQL approval and protected APIs'
     await assert.rejects(service.options(target, identity, authorization), /DEVICE_NOT_REGISTERED/);
     const audit = (await db.query('select event from public.training_device_audit order by sequence')).rows.map(row => row.event);
     assert.deepEqual(audit, ['registration_pending', 'approved', 'revoked']);
+  });
+  await t.test('fixed HTTP API registers pending, verifies pending, then opens only after SQL operator approval', async () => {
+    const previousFetch = globalThis.fetch;
+    const previousUrl = process.env.SUPABASE_URL;
+    const previousKey = process.env.SUPABASE_SECRET_KEY;
+    process.env.SUPABASE_URL = new URL(config.identityProvider.issuer).origin;
+    process.env.SUPABASE_SECRET_KEY = 'TEST_ONLY_DEVICE_SERVER_KEY';
+    globalThis.fetch = async (url, options = {}) => {
+      const incoming = new URL(url);
+      if (incoming.href === config.judgeIssuer + '/.well-known/jwks.json') return Response.json({ keys: [jwk] });
+      if (incoming.pathname === '/rest/v1/training_devices') {
+        return Response.json(await store.list(incoming.searchParams.get('owner_key').slice(3)));
+      }
+      if (incoming.pathname === '/rest/v1/training_device_challenges') {
+        const row = await store.challenge(incoming.searchParams.get('id').slice(3), incoming.searchParams.get('owner_key').slice(3));
+        return Response.json(row ? [row] : []);
+      }
+      const operation = incoming.pathname.split('/').at(-1);
+      if (incoming.pathname.startsWith('/rest/v1/rpc/')
+          && ['issue_training_device_challenge', 'register_training_device', 'consume_training_device_challenge'].includes(operation)) {
+        return Response.json(await rpc(operation, JSON.parse(options.body).p_record));
+      }
+      throw new Error('unexpected_test_network_target');
+    };
+    try {
+      const post = async body => {
+        const response = recorder();
+        await deviceApi({ method: 'POST', url: '/api/device', body,
+          headers: { authorization, 'content-type': 'application/json' } }, response);
+        return response;
+      };
+      const localDevice = authenticator();
+      const registration = await post({ action: 'register' });
+      assert.equal(registration.statusCode, 200);
+      const pending = await post({ action: 'finish', ...localDevice.registration(registration.body) });
+      assert.equal(pending.statusCode, 200);
+      assert.equal(pending.body.approved, false);
+      assert.equal(pending.body.state, 'pending');
+      const check = async () => {
+        const options = await post({ action: 'options', kind: 'status' });
+        assert.equal(options.statusCode, 200);
+        return post({ action: 'verify', ...localDevice.assertion(options.body) });
+      };
+      const unapproved = await check();
+      assert.equal(unapproved.statusCode, 200);
+      assert.equal(unapproved.body.approved, false);
+      assert.equal((await post({ action: 'options', ...target })).statusCode, 403);
+      await db.query('select public.decide_training_device($1,$2)', [pending.body.requestId, 'approved']);
+      const approved = await check();
+      assert.equal(approved.statusCode, 200);
+      assert.deepEqual(approved.body, { approved: true, state: 'approved' });
+      assert.equal((await post({ action: 'options', ...target })).statusCode, 200);
+      const invalid = await post({ action: 'options', kind: 'status', approved: true });
+      assert.equal(invalid.statusCode, 400);
+      assert.equal(invalid.body.error, 'INVALID_DEVICE_REQUEST');
+    } finally {
+      globalThis.fetch = previousFetch;
+      if (previousUrl === undefined) delete process.env.SUPABASE_URL; else process.env.SUPABASE_URL = previousUrl;
+      if (previousKey === undefined) delete process.env.SUPABASE_SECRET_KEY; else process.env.SUPABASE_SECRET_KEY = previousKey;
+    }
   });
 });

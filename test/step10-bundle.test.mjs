@@ -44,6 +44,6 @@ test('11단계 자기 점검은 기존 19개와 실제 로컬 앱 시험을 20�
   const checks = await runAttackChecks({ ...config, step: 11 }, { expectedCommit: 'a'.repeat(40), offline: true });
   assert.equal(checks.length, 20);
   const app = checks.find(item => item.attackId === 'device_app_local_boundary');
-  assert.match(app.observed, /^로컬 시험 22개 통과/u);
+  assert.match(app.observed, /^로컬 시험 23개 통과/u);
   assert.match(app.observed, /공식 심판.*미실행/u);
 });

@@ -22,11 +22,11 @@ async function runAppChecks(config, app, expectedCommit, options) {
       ...['step11-device.test.mjs', 'auth-ui.test.mjs', 'step11-app.test.mjs']
         .map(name => fileURLToPath(new URL(`../test/${name}`, import.meta.url)))],
       { windowsHide: true, timeout: 30000, maxBuffer: 256 * 1024, env: testEnv });
-    passed = /(?:ℹ|#) pass 22\b/u.test(stdout) && /(?:ℹ|#) fail 0\b/u.test(stdout);
+    passed = /(?:ℹ|#) pass 23\b/u.test(stdout) && /(?:ℹ|#) fail 0\b/u.test(stdout);
   } catch { /* Never copy test operands, credentials, tokens or signature proofs into a bundle. */ }
   checks.push({ attackId: 'device_app_local_boundary',
     expected: '로컬 서명·DB·화면 시험: 승인 대기 차단, 승인 후 정상, 무서명·경로/본문 변경·재사용·회수 거부, 비밀 저장 금지',
-    observed: passed ? '로컬 시험 22개 통과: 실제 서명·임시 PostgreSQL·UI 모의 실행. 운영 인증기·기기 승인·공식 심판 호환 시험은 미실행'
+    observed: passed ? '로컬 시험 23개 통과: 고정 API 등록·승인 확인, 실제 서명·임시 PostgreSQL·UI 모의 실행. 운영 인증기·기기 승인·공식 심판 호환 시험은 미실행'
       : '불일치: 11단계 로컬 시험 미통과. 운영 기기·공식 심판 판정 아님' });
   return checks;
 }

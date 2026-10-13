@@ -54,7 +54,7 @@ async function page(initialSession = null, autoApprove = true) {
         clientOptions = options;
         return { auth };
       } }, confirm: () => true }, URL,
-    fetch: (url, options) => url === '/api/device/status'
+    fetch: (url, options) => url === '/api/device'
       ? Promise.resolve(Response.json({ approved: false, state: 'verification_required', registeredCount: 1, pendingCount: 0 }))
       : new Promise(resolve => { calls.push({ url, options, resolve }); }),
   });

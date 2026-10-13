@@ -33,7 +33,7 @@ test('offline worker stores only a public guide and leaves all protected traffic
   assert.equal(writes[0].path, '/offline.html');
   assert.equal(network[0].request, '/offline.html');
   assert.equal(network[0].options.cache, 'no-store');
-  for (const path of ['/api/notes', '/api/notes/id', '/api/auth/token', '/api/restore', '/?token=fixture']) {
+  for (const path of ['/api/notes', '/api/notes/id', '/api/auth/token', '/api/device', '/api/restore', '/?token=fixture']) {
     handlers.fetch({ request: { url: origin + path, method: 'GET', mode: 'navigate' },
       respondWith() { assert.fail('protected or query-bearing navigation was intercepted'); } });
   }
