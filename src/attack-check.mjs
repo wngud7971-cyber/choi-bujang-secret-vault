@@ -10,6 +10,54 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { detect } from './detect.mjs';
 import { checkDetection } from '../scripts/detect-test.mjs';
+import { fileURLToPath } from 'node:url';
+
+async function runRecoveryChecks(config, app, expectedCommit, { offline = false } = {}) {
+  const previous = await runDetectionChecks(config, app, expectedCommit, { offline });
+  const local = previous.filter(item => /fixture|isolated|local_boundary/u.test(item.attackId));
+  const results = previous.filter(item => !local.includes(item));
+  results.push({ attackId: 'prior_stage1_9_local_checks',
+    expected: '기존 기기·추가 확인·자원 구역·소유자 API·탐지·격리 실행의 로컬 가상 점검을 재실행',
+    observed: `${local.length === 8 && local.every(item => item.observed.startsWith('로컬')) ? '로컬 기존 방어 점검 통과' : '불일치'}: ${local.length}개 실행 묶음; 실제 심판 판정 아님` });
+  let summary;
+  try {
+    const { stdout } = await promisify(execFile)(process.execPath,
+      ['--experimental-vm-modules', fileURLToPath(new URL('../scripts/recovery-check.mjs', import.meta.url))],
+      { windowsHide: true, timeout: 30000, maxBuffer: 8192 });
+    summary = JSON.parse(stdout);
+  } catch { /* Do not expose assertion operands, synthetic bodies or tokens. */ }
+  for (const [attackId, names, expected] of [
+    ['recovery_backup_validation_local', ['atomic_backup_and_readback', 'backup_hash_mismatch_stops',
+      'missing_backup_stops', 'original_backup_not_replaced', 'private_backup_and_rpc_grants'],
+    '실제 SQL의 비공개 사전 사본 검증·해시 불일치/누락 중단·원래 사본과 권한 보존'],
+    ['recovery_single_note_local', ['tampered_note_restored', 'deleted_note_restored', 'repeat_restore_and_audit_preservation',
+      'verified_b_owner_and_run_only', 'foreign_owner_id_reuse_stops', 'strict_single_target_and_no_role_spoof',
+      'post_restore_prior_defenses', 'post_restore_real_api_zone_checks', 'safe_recovery_responses_and_logs'],
+    '실제 복구 API·PostgreSQL에서 B 한 건의 변조/삭제 복원과 복구 직후 정상·금지 요청 재시험'],
+    ['recovery_policy_restore_local', ['preview_without_mutation', 'policy_restore_preview_hash_and_boundaries'],
+    '확인한 현재 해시가 맞을 때만 시험 정책 복원·B의 A 구역 거부·A 정상 유지·감사 기록 보존'],
+  ]) {
+    const ok = summary?.kind === 'local_postgresql_and_api' && summary.passed && summary.count === 16
+      && names.every(name => summary.results?.some(item => item.name === name && item.passed));
+    results.push({ attackId, expected: `로컬 가상 시험: ${expected}`,
+      observed: `${ok ? '로컬 복구 시험 통과' : '불일치'}: ${names.length}개 시나리오; 임시 PostgreSQL·일시 서명 신원 사용, 운영 DB·심판 시험 아님` });
+  }
+  let anonymous = offline ? '미실행: 업로드·재배포 후 확인 예정' : '미확인: 요청 실패 또는 시간 초과';
+  if (!offline) try {
+    const response = await fetch(new URL('/api/restore', app), { method: 'POST', redirect: 'error',
+      cache: 'no-store', signal: AbortSignal.timeout(10000) });
+    const data = await response.json().catch(() => null);
+    anonymous = response.status === 401 && data?.error === 'LOGIN_REQUIRED' && Object.keys(data).length === 1
+      ? 'HTTP 401: 무로그인 복구 요청은 자료·변경 없이 거부'
+      : `불일치: HTTP ${response.status}, 새 복구 경로의 무로그인 거부 미확인`;
+  } catch { /* No sensitive transport details. */ }
+  results.push({ attackId: 'anonymous_recovery_post', expected: '배포된 POST /api/restore가 무로그인 복구 요청 거부', observed: anonymous },
+    { attackId: 'recovery_storage_live', expected: '같은 학습 DB에 STEP10_DATABASE.sql 적용 후 비공개 백업과 복구 RPC 사용 가능',
+      observed: '미실행: 로컬 PostgreSQL에서 SQL 실행은 확인했으나 운영 DB에 SQL 적용은 사용자가 직접 수행해야 함' },
+    { attackId: 'recovery_live_b_restore', expected: '심판의 실제 B 메모 생성→백업 검증→변조/삭제→복구→기존 공격 재전송',
+      observed: '미실행: 실제 시험 계정 B 토큰·메모·운영 DB 변경을 만들지 않음. 업로드·DB 설정·재배포 후 심판 판정 필요' });
+  return results;
+}
 
 async function runDetectionChecks(config, app, expectedCommit, options) {
   const prior = await runZoneChecks(config, app, expectedCommit, options);
@@ -146,7 +194,8 @@ async function runDeviceChecks(config, app, expectedCommit, { offline = false } 
     && deployment.data?.schema === 'aleph.defense.deployment.v1' && deployment.data.step === config.step
     && deployment.data.repoUrl === config.repoUrl && deployment.data.commit === expectedCommit
     && deployment.data.originalApiUrl === config.originalApiUrl
-    && JSON.stringify(deployment.data.allowedRoutes) === JSON.stringify(config.allowedRoutes);
+    && JSON.stringify(deployment.data.allowedRoutes) === JSON.stringify(config.allowedRoutes)
+    && (config.step < 10 || deployment.data.restoreRoute === config.restoreRoute);
   const step7Checks = [];
   if (config.step === 7) {
     const { normal } = fixtureRequests();
@@ -207,7 +256,7 @@ async function runDeviceChecks(config, app, expectedCommit, { offline = false } 
 }
 
 export async function runAttackChecks(config, { expectedCommit, publicDataApiKey = process.env.SUPABASE_PUBLISHABLE_KEY, offline = false } = {}) {
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -219,6 +268,7 @@ export async function runAttackChecks(config, { expectedCommit, publicDataApiKey
     throw new Error('aleph.config.json의 실제 배포 주소를 먼저 넣어 주세요.');
   }
   if (typeof config.sampleMarker !== 'string' || !config.sampleMarker) throw new Error('가상 메모의 확인 표시를 넣어 주세요.');
+  if (config.step === 10) return runRecoveryChecks(config, app, expectedCommit, { offline });
   if (config.step === 9) return runDetectionChecks(config, app, expectedCommit, { offline });
   if (config.step === 8) return runZoneChecks(config, app, expectedCommit, { offline });
   if (config.step >= 6) return runDeviceChecks(config, app, expectedCommit, { offline });

@@ -70,10 +70,17 @@ try {
   const { RULE_IDS } = await import(deciderUrl.href);
   if (!Array.isArray(RULE_IDS)) fail('src/decider.mjs의 RULE_IDS는 규칙 이름 배열이어야 합니다.');
   const policyRules = [...RULE_IDS];
-  if (config.step === 9) {
+  if (config.step >= 9) {
     const { DETECTION_RULE_IDS } = await import(pathToFileURL(join(root, 'src', 'detect.mjs')).href);
     if (!Array.isArray(DETECTION_RULE_IDS)) fail('src/detect.mjs의 DETECTION_RULE_IDS를 확인해 주세요.');
     policyRules.push(...DETECTION_RULE_IDS);
+  }
+  if (config.step >= 10) {
+    if (config.restoreRoute !== '/api/restore' || !config.allowedRoutes.includes('POST /api/restore')) {
+      fail('10단계 복구 경로와 허용 경로를 확인하세요.');
+    }
+    const { RECOVERY_RULE_IDS } = await import(pathToFileURL(join(root, 'src', 'note-recovery.mjs')).href);
+    policyRules.push(...RECOVERY_RULE_IDS);
   }
   if (policyRules.length > 80 || policyRules.some(item => typeof item !== 'string'
       || !/^[a-z][a-z0-9_.-]{0,79}$/iu.test(item)) || new Set(policyRules).size !== policyRules.length) {

@@ -1,0 +1,2 @@
+# Recovery integrity verifies the original bytes, including line endings.
+recovery/policy-baseline/decider.mjs -text

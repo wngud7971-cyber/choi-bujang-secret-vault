@@ -3,6 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "policy:prepare": "node scripts/prepare-policy-test.mjs",
+    "policy:preview": "node scripts/policy-preview.mjs",
+    "policy:restore": "node scripts/policy-restore.mjs",
+    "recovery:test": "node --experimental-vm-modules scripts/recovery-check.mjs",
+    "test:10": "node --experimental-vm-modules --test test/step10*.test.mjs",
+    "test:10-policy": "node --test test/policy-preview.test.mjs",
     "build": "node scripts/build-public.mjs",
     "test:r5": "node --test test/r5.test.mjs",
     "test:package": "node --test test/package-starter.test.mjs",
@@ -20,5 +26,8 @@
   "dependencies": {
     "@supabase/supabase-js": "2.117.2",
     "jose": "6.2.12"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.9"
   }
 }

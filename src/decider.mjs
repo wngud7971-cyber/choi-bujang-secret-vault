@@ -5,6 +5,7 @@
 export const RULE_IDS = Object.freeze([
   'device_registered', 'xdr.brute_force.deny', 'xdr.web_injection.deny', 'step_up_required',
   'resource.exact_route', 'resource.note_owner', 'resource.announcement_editor',
+  'recovery.exact_route',
 ]);
 
 // User-zone IDs are the ENGINE'S opaque subject IDs, never Supabase UUIDs.
@@ -27,6 +28,13 @@ export function inspectResourceInput(request) {
   const root = path.startsWith('/api/') ? '/api' : '';
   const notes = `${root}/notes`;
   const notices = `${root}/announcements`;
+  if (path === `${root}/restore`) {
+    // Authentication, judge-B/run binding and backup ownership are checked at
+    // the final recovery API, just as single-note ownership is checked there.
+    return method === 'POST' && request.route === `POST ${root}/restore`
+      ? { allowed: true, ruleId: 'recovery.exact_route', resourceId: 'notes:recovery' }
+      : invalid('recovery.exact_route');
+  }
   if (path === notes) {
     // The engine has no owner evidence for a collection. The API's personal
     // list remains available at its existing address, with its own owner filter.
