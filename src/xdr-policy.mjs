@@ -8,7 +8,8 @@ export const WEB_RULE_ID = 'xdr.web_injection.deny';
 export const CVE_RULE_ID = 'xdr.known_cve.deny';
 export const PERSISTENCE_RULE_ID = 'xdr.persistence.deny';
 export const PRIVILEGE_RULE_ID = 'xdr.privilege.deny';
-export const XDR_RULE_IDS = Object.freeze([RULE_ID, WEB_RULE_ID, CVE_RULE_ID, PERSISTENCE_RULE_ID, PRIVILEGE_RULE_ID]);
+export const EXFILTRATION_RULE_ID = 'xdr.exfiltration.deny';
+export const XDR_RULE_IDS = Object.freeze([RULE_ID, WEB_RULE_ID, CVE_RULE_ID, PERSISTENCE_RULE_ID, PRIVILEGE_RULE_ID, EXFILTRATION_RULE_ID]);
 const moduleRules = { 'brute-force': RULE_ID, 'web-injection': WEB_RULE_ID, 'known-cve': CVE_RULE_ID, persistence: PERSISTENCE_RULE_ID, privilege: PRIVILEGE_RULE_ID };
 const persistenceTechniques = Object.freeze({
   'unsigned-service-change': 'T1543', 'unfamiliar-service-autostart': 'T1543',
@@ -20,6 +21,12 @@ const privilegeTechniques = Object.freeze({
   'other-account-admin-command': 'T1078', 'rapid-admin-reentry': 'T1098',
 });
 const webPatterns = new Set(['sql-injection', 'script-injection', 'path-traversal', 'command-injection']);
+const exfiltrationTechniques = Object.freeze({
+  'unfamiliar-bulk-transfer': 'T1048', 'offhours-archive-transfer': 'T1048',
+  'repeated-bulk-transfer': 'T1048', 'unusual-port-transfer': 'T1048',
+  'unfamiliar-archive-transfer': 'T1048', 'whole-library-transfer': 'T1048',
+  'c2-bulk-transfer': 'T1041',
+});
 const trustedContext = new AsyncLocalStorage();
 
 export function canonicalIp(value) {
@@ -60,6 +67,27 @@ export async function loadDenyRules(path = new URL('../xdr/brute-force/deny-rule
   return JSON.parse(await readFile(path, 'utf8'));
 }
 
+// Egress destinations are deliberately separate from inbound source rules.
+// Only a server-configured resolver supplies this address; headers/body never do.
+export function checkDestination(destinationIp, at, document) {
+  const destination = canonicalIp(destinationIp);
+  const now = Date.parse(at);
+  if (!destination || !Number.isFinite(now) || document?.schema !== 'aleph.xdr.deny-rules.v1'
+    || document.moduleKey !== 'exfiltration' || !Array.isArray(document.rules)) return null;
+  return document.rules.find(rule => rule?.ruleId === EXFILTRATION_RULE_ID && rule.action === 'deny'
+    && canonicalIp(rule.destinationIp) === destination && !Object.hasOwn(rule, 'sourceIp')
+    && Number.isFinite(Date.parse(rule.startsAt)) && Number.isFinite(Date.parse(rule.expiresAt))
+    && Date.parse(rule.expiresAt) > Date.parse(rule.startsAt)
+    && Date.parse(rule.expiresAt) - Date.parse(rule.startsAt) <= TTL_MS
+    && Date.parse(rule.startsAt) <= now && now < Date.parse(rule.expiresAt)
+    && Number.isFinite(rule.confidence) && rule.confidence >= 0.85 && rule.confidence <= 1
+    && Array.isArray(rule.alertIds) && rule.alertIds.length > 0
+    && rule.alertIds.every(id => typeof id === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/iu.test(id) && id !== 'unknown')
+    && Array.isArray(rule.patternIds) && rule.patternIds.length === 1
+    && Object.hasOwn(exfiltrationTechniques, rule.patternIds[0])
+    && rule.technique === exfiltrationTechniques[rule.patternIds[0]]) ?? null;
+}
+
 // Keep the existing single-document loader intact. A missing/broken optional
 // document must not disable another module's existing rules.
 export async function loadAllDenyRules(paths = [
@@ -68,6 +96,7 @@ export async function loadAllDenyRules(paths = [
   new URL('../xdr/known-cve/deny-rules.json', import.meta.url),
   new URL('../xdr/persistence/deny-rules.json', import.meta.url),
   new URL('../xdr/privilege/deny-rules.json', import.meta.url),
+  new URL('../xdr/exfiltration/deny-rules.json', import.meta.url),
 ]) {
   const documents = await Promise.all(paths.map(async path => {
     try { return await loadDenyRules(path); } catch { return null; }
@@ -77,19 +106,19 @@ export async function loadAllDenyRules(paths = [
 
 // This context is set only by the server transport adapter. It adds no fields to
 // the engine request and isolates simultaneous requests from different sources.
-export function withTrustedSource({ sourceIp, rules, clock }, callback) {
-  return trustedContext.run({ sourceIp: canonicalIp(sourceIp), rules, clock }, callback);
+export function withTrustedSource({ sourceIp, destinationIp, rules, clock }, callback) {
+  return trustedContext.run({ sourceIp: canonicalIp(sourceIp), destinationIp: canonicalIp(destinationIp), rules, clock }, callback);
 }
 
 export async function activeXdrRule() {
   const context = trustedContext.getStore();
-  if (!context?.sourceIp) return null;
+  if (!context?.sourceIp && !context?.destinationIp) return null;
   let document;
   try { document = await (context.rules ?? loadAllDenyRules)(); }
   catch { return null; } // Delegate to the existing policy; never create an allow.
   const at = (context.clock ?? (() => new Date().toISOString()))();
   for (const item of Array.isArray(document) ? document : [document]) {
-    const match = checkSource(context.sourceIp, at, item);
+    const match = checkSource(context.sourceIp, at, item) ?? checkDestination(context.destinationIp, at, item);
     if (match) return match;
   }
   return null;
