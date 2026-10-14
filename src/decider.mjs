@@ -3,7 +3,7 @@
 // 서버 연결부 src/ztna.mjs는 이 기본 규칙 앞에서 기존 XDR 거부를 확인합니다.
 // 요청 본문의 userId, role, 기기 키, 토큰을 별도로 믿거나 저장하지 마세요.
 export const RULE_IDS = Object.freeze([
-  'device_registered', 'xdr.brute_force.deny', 'xdr.web_injection.deny', 'xdr.known_cve.deny', 'xdr.persistence.deny', 'step_up_required',
+  'device_registered', 'xdr.brute_force.deny', 'xdr.web_injection.deny', 'xdr.known_cve.deny', 'xdr.persistence.deny', 'xdr.privilege.deny', 'step_up_required',
   'resource.exact_route', 'resource.note_owner', 'resource.announcement_editor',
   'recovery.exact_route',
 ]);

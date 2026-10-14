@@ -7,11 +7,17 @@ export const RULE_ID = 'xdr.brute_force.deny';
 export const WEB_RULE_ID = 'xdr.web_injection.deny';
 export const CVE_RULE_ID = 'xdr.known_cve.deny';
 export const PERSISTENCE_RULE_ID = 'xdr.persistence.deny';
-export const XDR_RULE_IDS = Object.freeze([RULE_ID, WEB_RULE_ID, CVE_RULE_ID, PERSISTENCE_RULE_ID]);
-const moduleRules = { 'brute-force': RULE_ID, 'web-injection': WEB_RULE_ID, 'known-cve': CVE_RULE_ID, persistence: PERSISTENCE_RULE_ID };
+export const PRIVILEGE_RULE_ID = 'xdr.privilege.deny';
+export const XDR_RULE_IDS = Object.freeze([RULE_ID, WEB_RULE_ID, CVE_RULE_ID, PERSISTENCE_RULE_ID, PRIVILEGE_RULE_ID]);
+const moduleRules = { 'brute-force': RULE_ID, 'web-injection': WEB_RULE_ID, 'known-cve': CVE_RULE_ID, persistence: PERSISTENCE_RULE_ID, privilege: PRIVILEGE_RULE_ID };
 const persistenceTechniques = Object.freeze({
   'unsigned-service-change': 'T1543', 'unfamiliar-service-autostart': 'T1543',
   'suspicious-scheduled-task': 'T1053', 'unfamiliar-startup-entry': 'T1547.001',
+});
+const privilegeTechniques = Object.freeze({
+  'suspicious-admin-membership': 'T1098', 'unfamiliar-offhours-admin-command': 'T1078',
+  'bulk-admin-membership': 'T1098', 'unfamiliar-admin-session': 'T1078',
+  'other-account-admin-command': 'T1078', 'rapid-admin-reentry': 'T1098',
 });
 const webPatterns = new Set(['sql-injection', 'script-injection', 'path-traversal', 'command-injection']);
 const trustedContext = new AsyncLocalStorage();
@@ -43,7 +49,11 @@ export function checkSource(sourceIp, at, document) {
     && (document.moduleKey !== 'persistence' || (Number.isFinite(rule.confidence) && rule.confidence >= 0.85 && rule.confidence <= 1
       && Array.isArray(rule.patternIds) && rule.patternIds.length === 1
       && Object.hasOwn(persistenceTechniques, rule.patternIds[0])
-      && rule.technique === persistenceTechniques[rule.patternIds[0]]))) ?? null;
+      && rule.technique === persistenceTechniques[rule.patternIds[0]]))
+    && (document.moduleKey !== 'privilege' || (Number.isFinite(rule.confidence) && rule.confidence >= 0.85 && rule.confidence <= 1
+      && Array.isArray(rule.patternIds) && rule.patternIds.length === 1
+      && Object.hasOwn(privilegeTechniques, rule.patternIds[0])
+      && rule.technique === privilegeTechniques[rule.patternIds[0]]))) ?? null;
 }
 
 export async function loadDenyRules(path = new URL('../xdr/brute-force/deny-rules.json', import.meta.url)) {
@@ -57,6 +67,7 @@ export async function loadAllDenyRules(paths = [
   new URL('../xdr/web-injection/deny-rules.json', import.meta.url),
   new URL('../xdr/known-cve/deny-rules.json', import.meta.url),
   new URL('../xdr/persistence/deny-rules.json', import.meta.url),
+  new URL('../xdr/privilege/deny-rules.json', import.meta.url),
 ]) {
   const documents = await Promise.all(paths.map(async path => {
     try { return await loadDenyRules(path); } catch { return null; }

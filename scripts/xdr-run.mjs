@@ -59,8 +59,8 @@ export async function runXdr({ root, moduleKey, writeError = (line) => console.e
   const jev = typeof decide.getReviewStats === 'function' ? decide.getReviewStats() : null;
   let afterRun = loaded.afterRun;
   // Host-only storage/integration stays outside the isolated decision graph.
-  if (typeof afterRun !== 'function' && ['brute-force', 'web-injection', 'known-cve', 'persistence'].includes(moduleKey)) {
-    const hookPath = join(outDir, ['known-cve', 'persistence'].includes(moduleKey) ? 'respond.mjs' : 'integrate.mjs');
+  if (typeof afterRun !== 'function' && ['brute-force', 'web-injection', 'known-cve', 'persistence', 'privilege'].includes(moduleKey)) {
+    const hookPath = join(outDir, ['known-cve', 'persistence', 'privilege'].includes(moduleKey) ? 'respond.mjs' : 'integrate.mjs');
     let exists = true;
     try { await access(hookPath); }
     catch (error) { if (error.code === 'ENOENT') exists = false; else throw error; }
