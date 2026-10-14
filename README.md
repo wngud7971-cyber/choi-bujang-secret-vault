@@ -1,5 +1,19 @@
 # BYTE BACK · 12단계 저장점
 
+## 보너스 xdr-03 저장점 · 알려진 취약점 악용 탐지
+
+기준 커밋은 `ed0db7e`입니다. 이전 1~12단계와 무차별 로그인·웹 주입 보너스를 보존하고 `xdr/known-cve/`를 추가했습니다. `aleph.config.json`의 단계는 계속 12이며 배포 주소·GitHub 주소·로그인 발급자·심판 발급자·원본 API·보호 허용 경로를 바꾸지 않았습니다. `api/` 서버 함수는 **12개**이며 새 API 함수·DB 변경은 없습니다.
+
+`read-alerts.mjs`는 원본 Wazuh 모양 경보 24건에서 시각·출발 주소·가명 계정·규칙 수준·가린 설명만 24줄로 읽습니다. 원본 경보는 수정하지 않습니다. `patterns.json`의 네 패턴은 CVE-2021-44228의 완전한 원격 JNDI 조회, 불완전한 조회, 점검 도구 흔적, 취약점 관련 맥락입니다. 각 패턴에 조건과 한 줄 근거·출처를 기록했습니다. 상단 상수로 같은 목록을 가진 `decide.mjs`는 `decide(alert)`만 내보내며 import·파일 접근·네트워크·외부 패키지·호출 이력 없이 한 파일로 판단합니다. 확신도 0.85 이상은 block, 0.5 이상은 alert, 나머지는 record입니다. 이유에는 고정 패턴 이름만 남깁니다.
+
+`respond.mjs`는 경보와 판단 결과를 다시 대조해 명확한 악용 후보만 별도 `deny-rules.json`에 저장하고 경보 ID·CVE·T1190·15분 만료 시각을 붙입니다. 중복 ID·잘못된 시각/주소·위조된 점수/이유·같은 주소의 정상 또는 애매한 요청이 있으면 차단 규칙을 보류합니다. 알림은 가린 메타데이터 한 줄씩 기존 `xdr/alerts.log` 뒤에 추가합니다. `src/xdr-policy.mjs`가 기존 두 보너스 뒤에 새 거부 문서를 선택적으로 읽습니다. 문서 누락·손상이 다른 규칙을 끄지 않으며 기본 신원·기기·구역·복구 규칙의 동작과 응답 계약은 보존됩니다. `src/decider.mjs`에는 구현한 규칙 이름만 추가했습니다.
+
+실행: `npm run xdr:run -- known-cve`. 이 작업 환경에는 npm 실행 파일이 없어 같은 package.json 실행 대상인 `node scripts/xdr-run.mjs known-cve`로 직접 확인했습니다. 결과는 **block 8 · alert 8 · record 8**, 정상 이벤트 block **0**입니다. `verification.json`의 실제 연결부 재현은 명확한 공격 8건 거부·새 CVE 규칙 일치 8건·정상 8건 허용·애매한 시도 거부 0건입니다. 기존 거부 규칙이 2건에 먼저 적용됐고 새 CVE 규칙이 6건의 최종 거부를 처리했습니다. 시험의 과거 시각으로 재현한 기록이며 운영 차단·침해 성공·라이브러리 패치·심판 통과의 증거는 아닙니다. 과거 경보의 만료 규칙을 현재 시각으로 다시 살리지 않습니다.
+
+직접 확인: `node xdr/known-cve/read-alerts.mjs`는 비밀값 없는 24줄이어야 합니다. 위 실행 명령 후 `xdr/known-cve/result.json`의 counts와 `verification.json`의 normalBlocked·normalDenied·ambiguousDenied가 모두 0인지 확인합니다. 해당 과제 화면에서 기존 배포 주소와 공개 GitHub 주소로 제출합니다. 새 관제 화면이나 새 버튼은 추가하지 않았습니다. Vercel 재배포·운영 경보 전달·실제 연결 회수·심판 판정은 미실행입니다.
+
+검증 명령: `node --experimental-vm-modules --test test/known-cve.test.mjs test/known-cve-integration.test.mjs test/package-starter.test.mjs test/step11-redesign.test.mjs`. 단독 격리 판정, 패턴 일치, 출력 비밀값 제거, 정상 요청 보호, 만료, 기존 규칙 우선순위, 재실행, API 함수 12개 제한을 확인합니다. 전체 회귀 시험 226개 통과·실패 0이며 로컬 공개 빌드도 통과했습니다. 기존 복구 시험의 Windows 격리 파일 권한 오류는 허가받은 환경에서 같은 시험을 재실행해 통과를 확인했습니다.
+
 ## 12단계 · 탈환 작전실
 
 ### 실행 기록 대조 수정 · S12_SCREEN_MISMATCH
