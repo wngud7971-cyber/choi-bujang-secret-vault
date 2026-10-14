@@ -1,0 +1,166 @@
+{
+  "schema": "aleph.xdr.deny-rules.v1",
+  "moduleKey": "exfiltration",
+  "rules": [
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "action": "deny",
+      "destinationIp": "203.0.113.50",
+      "startsAt": "2026-09-27T00:16:03.000Z",
+      "expiresAt": "2026-09-27T00:31:03.000Z",
+      "alertIds": [
+        "ex-01"
+      ],
+      "confidence": 0.93,
+      "pattern": "낯선 목적지의 대량 자료 전송",
+      "patternIds": [
+        "unfamiliar-bulk-transfer"
+      ],
+      "technique": "T1048"
+    },
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "action": "deny",
+      "destinationIp": "198.51.100.40",
+      "startsAt": "2026-09-27T00:16:48.000Z",
+      "expiresAt": "2026-09-27T00:31:48.000Z",
+      "alertIds": [
+        "ex-02"
+      ],
+      "confidence": 0.92,
+      "pattern": "시간 밖 낯선 목적지의 압축 파일 반출",
+      "patternIds": [
+        "offhours-archive-transfer"
+      ],
+      "technique": "T1048"
+    },
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "action": "deny",
+      "destinationIp": "203.0.113.50",
+      "startsAt": "2026-09-27T01:05:14.000Z",
+      "expiresAt": "2026-09-27T01:20:14.000Z",
+      "alertIds": [
+        "ex-03"
+      ],
+      "confidence": 0.9,
+      "pattern": "반복된 대용량 외부 전송",
+      "patternIds": [
+        "repeated-bulk-transfer"
+      ],
+      "technique": "T1048"
+    },
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "action": "deny",
+      "destinationIp": "198.51.100.40",
+      "startsAt": "2026-09-27T01:20:07.000Z",
+      "expiresAt": "2026-09-27T01:35:07.000Z",
+      "alertIds": [
+        "ex-04"
+      ],
+      "confidence": 0.9,
+      "pattern": "낯선 포트의 대량 자료 연속 전송",
+      "patternIds": [
+        "unusual-port-transfer"
+      ],
+      "technique": "T1048"
+    },
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "action": "deny",
+      "destinationIp": "203.0.113.55",
+      "startsAt": "2026-09-27T02:04:26.000Z",
+      "expiresAt": "2026-09-27T02:19:26.000Z",
+      "alertIds": [
+        "ex-05"
+      ],
+      "confidence": 0.93,
+      "pattern": "낯선 목적지의 대량 자료 전송",
+      "patternIds": [
+        "unfamiliar-bulk-transfer"
+      ],
+      "technique": "T1048"
+    },
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "action": "deny",
+      "destinationIp": "192.0.2.90",
+      "startsAt": "2026-09-27T03:02:19.000Z",
+      "expiresAt": "2026-09-27T03:17:19.000Z",
+      "alertIds": [
+        "ex-06"
+      ],
+      "confidence": 0.9,
+      "pattern": "반복된 대용량 외부 전송",
+      "patternIds": [
+        "repeated-bulk-transfer"
+      ],
+      "technique": "T1048"
+    },
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "action": "deny",
+      "destinationIp": "198.51.100.45",
+      "startsAt": "2026-09-27T04:12:08.000Z",
+      "expiresAt": "2026-09-27T04:27:08.000Z",
+      "alertIds": [
+        "ex-07"
+      ],
+      "confidence": 0.89,
+      "pattern": "낯선 목적지의 대용량 압축 전송",
+      "patternIds": [
+        "unfamiliar-archive-transfer"
+      ],
+      "technique": "T1048"
+    },
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "action": "deny",
+      "destinationIp": "203.0.113.60",
+      "startsAt": "2026-09-27T05:03:41.000Z",
+      "expiresAt": "2026-09-27T05:18:41.000Z",
+      "alertIds": [
+        "ex-08"
+      ],
+      "confidence": 0.95,
+      "pattern": "짧은 시간의 자료실 전체 외부 복사",
+      "patternIds": [
+        "whole-library-transfer"
+      ],
+      "technique": "T1048"
+    },
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "action": "deny",
+      "destinationIp": "203.0.113.61",
+      "startsAt": "2026-09-27T06:08:12.000Z",
+      "expiresAt": "2026-09-27T06:23:12.000Z",
+      "alertIds": [
+        "ex-09"
+      ],
+      "confidence": 0.94,
+      "pattern": "명령 통로의 대용량 반복 반출",
+      "patternIds": [
+        "c2-bulk-transfer"
+      ],
+      "technique": "T1041"
+    },
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "action": "deny",
+      "destinationIp": "198.51.100.46",
+      "startsAt": "2026-09-27T07:01:05.000Z",
+      "expiresAt": "2026-09-27T07:16:05.000Z",
+      "alertIds": [
+        "ex-10"
+      ],
+      "confidence": 0.89,
+      "pattern": "낯선 목적지의 대용량 압축 전송",
+      "patternIds": [
+        "unfamiliar-archive-transfer"
+      ],
+      "technique": "T1048"
+    }
+  ]
+}

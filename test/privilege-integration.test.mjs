@@ -96,7 +96,7 @@ test('privilege: previous modules keep priority and optional document failure le
   assert.deepEqual((await connected(fixtureRequests().normal, { socket: { remoteAddress: attack.data.srcip } })).ruleIds, [RULE_ID]);
   const docs = await loadAllDenyRules([new URL('xdr/brute-force/deny-rules.json', root), new URL('xdr/privilege/missing.json', root)]);
   assert.deepEqual(docs, [existing]);
-  assert.equal((await loadAllDenyRules()).length, 5);
+  assert.equal((await loadAllDenyRules()).length, 6);
 });
 
 test('privilege: rerun is deterministic, preserves inputs and previous rules, appends redacted alerts', async () => {
