@@ -37,6 +37,12 @@ node scripts/xdr-run.mjs brute-force
 
 `npm run xdr:run -- brute-force` 도 같은 명령입니다. 실행기는 해당 경보마다 `decide` 를 부르고, 결과를 `xdr/<moduleKey>/result.json` 에 씁니다. 형식은 `aleph.xdr.result.v1` 이고, `decisions` 에는 경보 id·행동·확신도·이유가, `counts` 에는 `block`·`alert`·`record` 건수가 있습니다.
 
+## 보너스 xdr-04 · persistence
+
+`npm run xdr:run -- persistence`로 「몰래 심어진 프로그램을 찾아냅니다」를 실행합니다. `persistence/decide.mjs`는 패턴 상수를 포함하고 다른 파일·패키지·파일 접근·네트워크 없이 `decide(alert)`만 내보냅니다. 확인용 `read-alerts.mjs`는 별도이며 원본 경보 24건을 가린 다섯 항목 24줄로 읽습니다. `patterns.json`에 서비스(T1543)·예약 작업(T1053)·시작 폴더(T1547.001)의 조건과 한 줄 근거가 있습니다.
+
+호스트 실행기만 `respond.mjs`를 불러 별도 거부 문서와 15분 만료·근거 경보 번호를 저장하고 가린 알림을 공통 로그 뒤에 쌓습니다. 앞선 세 모듈과 기본 정책은 보존합니다. 동일 출발 주소의 정상/애매한 경보는 차단을 보류합니다. 결과는 8차단·8알림·8기록, 실제 연결부 재현은 공격 8거부·정상 8허용·정상/애매한 거부 0건입니다. 격리는 확인된 소켓 출발 주소 기준이며 검증된 기기 ID 연결·운영 PC 격리·열린 연결 회수·심판 판정은 미실행입니다. 과거 경보의 만료 규칙은 현재 되살리지 않습니다.
+
 ## 보너스 xdr-03 · known-cve
 
 `npm run xdr:run -- known-cve`로 알려진 취약점 과제를 실행합니다. `known-cve/decide.mjs`는 다른 파일·패키지 없이 `decide(alert)`만 내보내는 단독 판정 파일입니다. `read-alerts.mjs`는 확인용으로만 사용하며 원본 경보·요청 원문·비밀값을 출력하지 않습니다. `patterns.json`의 조건·이름·한 줄 근거는 판정 파일 상단 상수와 같습니다.
