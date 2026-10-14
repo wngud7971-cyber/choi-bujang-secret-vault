@@ -1,0 +1,90 @@
+[
+  {
+    "id": "unfamiliar-bulk-transfer",
+    "name": "낯선 목적지의 대량 자료 전송",
+    "technique": "T1048",
+    "condition": "처음 보는 목적지·실제 외부 전송·50MB 이상·100개 이상 파일이 함께 있음.",
+    "evidence": "대체 프로토콜 유출 T1048 관점의 대량 반출 후보이며 프로토콜 자체는 경보에 없어 확정하지 않음.",
+    "sources": [
+      "https://attack.mitre.org/techniques/T1048/"
+    ],
+    "confidence": 0.93
+  },
+  {
+    "id": "offhours-archive-transfer",
+    "name": "시간 밖 낯선 목적지의 압축 파일 반출",
+    "technique": "T1048",
+    "condition": "업무/수업 시간 밖 압축 파일이 처음 보는 목적지로 실제 전송되고 50MB 이상임.",
+    "evidence": "T1048의 외부 반출 관점에서 시간 밖 대용량 압축 전송을 검토하며 시간 밖 사용 하나로 차단하지 않음.",
+    "sources": [
+      "https://attack.mitre.org/techniques/T1048/"
+    ],
+    "confidence": 0.92
+  },
+  {
+    "id": "repeated-bulk-transfer",
+    "name": "반복된 대용량 외부 전송",
+    "technique": "T1048",
+    "condition": "같은 목적지·대용량 전송 반복 설명·50MB 이상·count 5회 이상이 함께 있음.",
+    "evidence": "T1048 대상 유출 후보를 반복 횟수와 전송량으로 보강하며 단일 대용량 정상 작업과 구분함.",
+    "sources": [
+      "https://attack.mitre.org/techniques/T1048/"
+    ],
+    "confidence": 0.9
+  },
+  {
+    "id": "unusual-port-transfer",
+    "name": "낯선 포트의 대량 자료 연속 전송",
+    "technique": "T1048",
+    "condition": "평소 쓰지 않던 포트·자료 연속 전송 설명·50MB 이상·파일 20개 이상이 함께 있음.",
+    "evidence": "T1048은 C2와 다른 프로토콜 반출이며 비정상 포트와 대량 자료 전송은 검토 신호이지 프로토콜 확정 증거는 아님.",
+    "sources": [
+      "https://attack.mitre.org/techniques/T1048/"
+    ],
+    "confidence": 0.9
+  },
+  {
+    "id": "unfamiliar-archive-transfer",
+    "name": "낯선 목적지의 대용량 압축 전송",
+    "technique": "T1048",
+    "condition": "처음 보는 목적지로 압축 파일 실제 전송·50MB 이상이 함께 있음.",
+    "evidence": "T1048 관점의 대용량 외부 반출 후보를 목적지 이력 설명과 함께 검토함.",
+    "sources": [
+      "https://attack.mitre.org/techniques/T1048/"
+    ],
+    "confidence": 0.89
+  },
+  {
+    "id": "whole-library-transfer",
+    "name": "짧은 시간의 자료실 전체 외부 복사",
+    "technique": "T1048",
+    "condition": "짧은 시간 자료실 전체 외부 복사 설명·50MB 이상·100개 이상 파일이 함께 있음.",
+    "evidence": "T1048 관점에서 단기간 자료 전체 반출과 전송량을 함께 검토함.",
+    "sources": [
+      "https://attack.mitre.org/techniques/T1048/"
+    ],
+    "confidence": 0.95
+  },
+  {
+    "id": "c2-bulk-transfer",
+    "name": "명령 통로의 대용량 반복 반출",
+    "technique": "T1041",
+    "condition": "명령 통로로 실제 전송·50MB 이상·count 5회 이상이 함께 있음.",
+    "evidence": "T1041은 기존 C2 통로로 자료를 유출하는 기법이며 경보의 명령 통로 설명과 대량 반복 전송을 대조함.",
+    "sources": [
+      "https://attack.mitre.org/techniques/T1041/"
+    ],
+    "confidence": 0.94
+  },
+  {
+    "id": "transfer-review",
+    "name": "외부 전송·압축 준비 검토",
+    "technique": "T1048",
+    "condition": "낯선 목적지·평소보다 늘어난 전송·압축 준비·실패·짧은 명령 통로 자료 등 복합 근거가 부족한 활동.",
+    "evidence": "T1041·T1048 대상 활동을 알림으로 검토하며 실패 또는 준비만으로 성공한 유출을 확정하지 않음.",
+    "sources": [
+      "https://attack.mitre.org/techniques/T1048/"
+    ],
+    "confidence": 0.6
+  }
+]
