@@ -1,5 +1,23 @@
 # BYTE BACK · 12단계 저장점
 
+## 보너스 xdr-04 저장점 · 몰래 심어진 프로그램 탐지
+
+기준 커밋은 `4b3eed0`(xdr-03 완료본)입니다. 기존 1~12단계·앞선 세 보너스를 보존하고 `xdr/persistence/`를 추가했습니다. `aleph.config.json`의 단계 12·기존 배포/GitHub 주소·로그인/심판 발급자·원본 API·보호 허용 경로는 그대로입니다. 새 서버 API나 DB 변경 없이 Vercel 함수 **12개**를 유지합니다.
+
+`read-alerts.mjs`는 원본 Wazuh 모양 경보 24건에서 시각·출발 주소·가명 계정·규칙 수준·가린 설명만 24줄로 읽습니다. 파일 경로·헤더·경보 원문·비밀값은 출력하지 않고 원본도 수정하지 않습니다. `patterns.json`의 다섯 패턴은 서명 없는 서비스 생성/실행 파일 변경, 평소 목록 밖의 자동 시작 서비스, 낯선 예약 작업의 임시 파일 실행, 미등록 시작 폴더 프로그램, 근거가 부족한 변경 검토입니다. 근거는 [MITRE T1543](https://attack.mitre.org/techniques/T1543/)·[T1053](https://attack.mitre.org/techniques/T1053/)이며 시작 폴더는 정확한 분류인 [T1547.001](https://attack.mitre.org/techniques/T1547/001/)을 따릅니다. 시작 틀의 T1543 표기를 바꾸지 않고 자체 패턴에 올바른 근거를 기록합니다.
+
+같은 패턴을 상단 상수로 가진 `decide.mjs`는 `decide(alert)`만 내보냅니다. import·외부 패키지·파일 접근·네트워크·호출 이력 없이 단독 판단합니다. 확신도 0.85 이상은 block, 0.5 이상은 alert, 그 아래는 record이며 이유는 고정 패턴 이름 한 줄입니다. 규칙 수준·MITRE 번호·서명 미확인·단순 임시 파일·서비스 설명 변경만으로 차단하지 않습니다. 서명이 있다는 사실만으로 낯선 신규 항목을 정상으로 단정하지도 않습니다.
+
+`respond.mjs`는 경보와 판단 근거를 다시 대조한 차단 후보만 별도 `deny-rules.json`으로 저장합니다. 근거 경보 ID·패턴·기법·15분 만료를 붙이고, 위조된 결과·중복 ID·잘못된 시각/주소·동일 출발 주소의 정상 또는 애매한 경보가 있으면 차단을 보류합니다. 가린 알림은 기존 `xdr/alerts.log` 뒤에 추가합니다. 기존 `src/xdr-policy.mjs`가 앞선 세 모듈 뒤에서 새 문서를 선택적으로 읽습니다. 문서 누락/손상이 다른 규칙을 끄지 않으며 `src/decider.mjs`에는 구현한 규칙 이름만 추가했습니다. 기본 신원·기기·구역·회수·복구 동작과 요청/응답 계약은 보존합니다.
+
+실행: `npm run xdr:run -- persistence`. 이 작업 환경에는 npm 실행 파일이 없어 같은 실행 대상인 `node scripts/xdr-run.mjs persistence`로 확인했습니다. **block 8 · alert 8 · record 8 · 정상 이벤트 block 0건**입니다. `verification.json`은 기존 연결부 재현에서 명확한 공격 8건 거부·새 지속성 규칙 일치 8건·정상 8건 허용·애매한 시도 거부 0건을 기록합니다. 경보의 과거 시각으로 재현하며 만료 규칙을 현재 시각으로 다시 살리지 않습니다.
+
+격리 범위는 서버 소켓에서 확인한 출발 주소입니다. 경보에는 검증된 기기 ID 연결 정보가 없어 계정이나 `agent.name`만으로 PC 전체를 격리하지 않습니다. 현재 평소 목록의 근거는 경보 설명이며 실제 PC의 승인 목록을 수집/대조하거나 서비스를 삭제하는 도구는 아닙니다. 운영 엔진 경보 전달·실제 기기 ID 연결·열린 연결 회수·운영 PC 격리·Vercel 재배포·심판 판정은 미실행입니다. 기록한 로컬 결과를 운영 결과로 보고하지 않습니다.
+
+직접 확인: `node xdr/persistence/read-alerts.mjs`는 비밀값 없는 24줄이어야 합니다. 실행 후 `xdr/persistence/result.json`의 counts와 `verification.json`의 normalBlocked·normalDenied·ambiguousDenied가 0인지 확인합니다. 정상 접속은 통과하고 명확한 공격 출발 주소는 규칙 유효기간 동안 거부돼야 합니다. 업로드 ZIP을 풀어 내용물을 기존 공개 GitHub 저장소에 반영하고 기존 Vercel 프로젝트의 배포 Ready를 확인한 뒤 「몰래 심어진 프로그램을 찾아냅니다」 화면의 **심판에게 제출하기**를 누릅니다. 기존 `api/operations.js`가 원격 저장소에 남아 있다면 이전 12단계 안내대로 삭제해야 함수 12개 구성이 유지됩니다.
+
+검증: `node --experimental-vm-modules --test test/persistence.test.mjs test/persistence-integration.test.mjs test/known-cve-integration.test.mjs test/step11-redesign.test.mjs test/package-starter.test.mjs`. 관련 시험 34개 통과·실패 0입니다. 원본/이전 모듈 보존, 단독 격리 실행, 정상·애매한 접속 보호, 위조 결과 거부, 만료, 재실행 및 함수 수 제한을 확인했습니다. 전체 회귀는 중복 제외 **238개 통과**입니다. Windows 격리 권한으로 중단됐던 기존 복구 시험 3개는 허가받은 환경에서 재실행하여 하위 시험까지 통과했습니다(첫 실행 219개 통과, 복구 재실행 30개 통과 중 11개 중복). 공개 빌드 통과, 검사 파일 162개의 메모 본문·실제 비밀값·공개 비밀값 형태 일치 0건입니다.
+
 ## 보너스 xdr-03 저장점 · 알려진 취약점 악용 탐지
 
 기준 커밋은 `ed0db7e`입니다. 이전 1~12단계와 무차별 로그인·웹 주입 보너스를 보존하고 `xdr/known-cve/`를 추가했습니다. `aleph.config.json`의 단계는 계속 12이며 배포 주소·GitHub 주소·로그인 발급자·심판 발급자·원본 API·보호 허용 경로를 바꾸지 않았습니다. `api/` 서버 함수는 **12개**이며 새 API 함수·DB 변경은 없습니다.
