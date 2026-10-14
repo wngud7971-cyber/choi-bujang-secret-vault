@@ -37,4 +37,10 @@ node scripts/xdr-run.mjs brute-force
 
 `npm run xdr:run -- brute-force` 도 같은 명령입니다. 실행기는 해당 경보마다 `decide` 를 부르고, 결과를 `xdr/<moduleKey>/result.json` 에 씁니다. 형식은 `aleph.xdr.result.v1` 이고, `decisions` 에는 경보 id·행동·확신도·이유가, `counts` 에는 `block`·`alert`·`record` 건수가 있습니다.
 
+## 보너스 xdr-03 · known-cve
+
+`npm run xdr:run -- known-cve`로 알려진 취약점 과제를 실행합니다. `known-cve/decide.mjs`는 다른 파일·패키지 없이 `decide(alert)`만 내보내는 단독 판정 파일입니다. `read-alerts.mjs`는 확인용으로만 사용하며 원본 경보·요청 원문·비밀값을 출력하지 않습니다. `patterns.json`의 조건·이름·한 줄 근거는 판정 파일 상단 상수와 같습니다.
+
+호스트 실행기만 `known-cve/respond.mjs` 후처리를 호출합니다. 별도 `deny-rules.json`을 만들고 기존 `alerts.log`에 가린 경보를 추가합니다. 기존 두 보너스 규칙은 수정하지 않습니다. `src/xdr-policy.mjs`의 기존 연결이 새 문서를 추가로 읽으며 정상·애매한 접속 보호와 15분 만료를 적용합니다. `result.json`은 8차단·8알림·8기록, `verification.json`은 명확 8건 거부·정상 8건 허용·정상/애매한 거부 0건을 기록합니다. 과거 경보 시각의 로컬 재현이며 운영 연결과 심판 판정은 미실행입니다. 자세한 상태·검증·배포 제한은 루트 README의 xdr-03 기록에 있습니다.
+
 반환 형식이 틀린 경보는 `record` 로 남고, 오류 한 줄이 출력됩니다. 실행기 자체는 네트워크를 쓰지 않습니다. 판정자는 격리된 환경에서 같은 명령을 다시 실행해 결과를 봅니다. 이미 커밋된 `result.json` 만으로 판정이 끝나지 않습니다.

@@ -1,0 +1,23 @@
+{
+  "schema": "aleph.xdr.verification.v1",
+  "moduleKey": "known-cve",
+  "inputAlerts": 24,
+  "blockCandidates": 8,
+  "installedRules": 8,
+  "clearAttacks": 8,
+  "clearAttacksDenied": 8,
+  "clearKnownCveRulesMatched": 8,
+  "knownCveRuleDenials": 6,
+  "existingRuleDenials": 2,
+  "normalEvents": 8,
+  "normalBlocked": 0,
+  "normalDenied": 0,
+  "normalAllowed": 8,
+  "ambiguousEvents": 8,
+  "ambiguousDenied": 0,
+  "withheldBlocks": 0,
+  "expiresAfterSeconds": 900,
+  "mode": "fixture-replay",
+  "connection": "src/ztna.mjs -> src/xdr-policy.mjs; unmatched -> src/decider.mjs",
+  "liveEnforcement": "not_run"
+}

@@ -5,8 +5,9 @@ import { isIP } from 'node:net';
 export const TTL_MS = 15 * 60 * 1000;
 export const RULE_ID = 'xdr.brute_force.deny';
 export const WEB_RULE_ID = 'xdr.web_injection.deny';
-export const XDR_RULE_IDS = Object.freeze([RULE_ID, WEB_RULE_ID]);
-const moduleRules = { 'brute-force': RULE_ID, 'web-injection': WEB_RULE_ID };
+export const CVE_RULE_ID = 'xdr.known_cve.deny';
+export const XDR_RULE_IDS = Object.freeze([RULE_ID, WEB_RULE_ID, CVE_RULE_ID]);
+const moduleRules = { 'brute-force': RULE_ID, 'web-injection': WEB_RULE_ID, 'known-cve': CVE_RULE_ID };
 const webPatterns = new Set(['sql-injection', 'script-injection', 'path-traversal', 'command-injection']);
 const trustedContext = new AsyncLocalStorage();
 
@@ -30,7 +31,10 @@ export function checkSource(sourceIp, at, document) {
     && rule.alertIds.every(id => typeof id === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/iu.test(id) && id !== 'unknown')
     && (document.moduleKey !== 'web-injection' || (Number.isFinite(rule.confidence) && rule.confidence >= 0.85 && rule.confidence <= 1
       && Number.isInteger(rule.attempts) && rule.attempts >= 3 && rule.attempts <= 1_000_000
-      && Array.isArray(rule.patternIds) && rule.patternIds.length > 0 && rule.patternIds.every(id => webPatterns.has(id))))) ?? null;
+      && Array.isArray(rule.patternIds) && rule.patternIds.length > 0 && rule.patternIds.every(id => webPatterns.has(id))))
+    && (document.moduleKey !== 'known-cve' || (Number.isFinite(rule.confidence) && rule.confidence >= 0.85 && rule.confidence <= 1
+      && rule.cve === 'CVE-2021-44228' && rule.technique === 'T1190'
+      && Array.isArray(rule.patternIds) && rule.patternIds.length === 1 && rule.patternIds[0] === 'log4shell-remote-lookup'))) ?? null;
 }
 
 export async function loadDenyRules(path = new URL('../xdr/brute-force/deny-rules.json', import.meta.url)) {
@@ -42,6 +46,7 @@ export async function loadDenyRules(path = new URL('../xdr/brute-force/deny-rule
 export async function loadAllDenyRules(paths = [
   new URL('../xdr/brute-force/deny-rules.json', import.meta.url),
   new URL('../xdr/web-injection/deny-rules.json', import.meta.url),
+  new URL('../xdr/known-cve/deny-rules.json', import.meta.url),
 ]) {
   const documents = await Promise.all(paths.map(async path => {
     try { return await loadDenyRules(path); } catch { return null; }

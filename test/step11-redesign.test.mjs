@@ -224,7 +224,8 @@ test('whole submission isolation: the actual bundle script finishes with git-rea
   const bundle = JSON.parse(written.get(join(root, 'artifacts', 'submission.json')));
   assert.equal(bundle.step, config.step);
   assert.equal(bundle.commit, commit);
-  assert.equal(bundle.policyRules.length, 14);
+  assert.equal(bundle.policyRules.length, 15);
+  assert.ok(bundle.policyRules.includes('xdr.known_cve.deny'));
   assert.equal(bundle.attackAttempts.length, 20);
   assert.equal(requests.length, 17);
   assert.ok(gitReads.length > 0);
