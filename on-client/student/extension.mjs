@@ -33,9 +33,9 @@ export function createStudentView() {
         root.appendChild(block);
       };
       const deviceLine = (parent, device) => line(parent,
-        `기기: ${value(device?.label)} · ID: ${value(device?.id)} · 상태: ${label(deviceLabels, device?.status)}`);
+        `기기: ${value(device?.label)} · ID: ${value(device?.id)} · 상태: ${label(deviceLabels, device?.status)}(${value(device?.status)})`);
       const sessionLine = (parent, session) => line(parent,
-        `세션 ID: ${value(session?.id)} · 상태: ${label(sessionLabels, session?.status)}`);
+        `세션 ID: ${value(session?.id)} · 상태: ${label(sessionLabels, session?.status)}(${value(session?.status)})`);
       section('현재 계정·기기·세션', me, (parent, data) => {
         line(parent, `사용자: ${value(data?.user?.label)} · ID: ${value(data?.user?.id)}`);
         deviceLine(parent, data?.device);
