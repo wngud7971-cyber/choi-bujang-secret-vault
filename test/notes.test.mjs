@@ -81,7 +81,7 @@ test('stage 4 authenticates and restricts all note operations to the verified ow
   globalThis.fetch = fakeFetch;
   try {
     await t.test('missing, malformed, forged, expired and wrong-service tokens return 401 without notes or DB access', async () => {
-      const invalid = [undefined, '', 'Bearer not-a-token', ['Bearer duplicate'],
+      const invalid = [undefined, '', `Bearer ${makeFixtureValue()}`, [`Bearer ${makeFixtureValue()}`],
         'Bearer ' + await studentToken({}, attacker.privateKey),
         'Bearer ' + await studentToken({ exp: now - 60 }),
         'Bearer ' + await studentToken({ aud: 'another-service' }),

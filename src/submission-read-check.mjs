@@ -34,7 +34,8 @@ export async function runReadChecks(config, { expectedCommit, offline = false, f
       return r.status === 200 && Array.isArray(d?.notes) && d.notes.length === 0 && !Object.hasOwn(d, 'sampleMarker');
     }],
     ['anonymous_api_note_read', '/api/notes', 'GET', '로그인 없는 메모 요청 거부', {}, denied],
-    ['forged_login_token', '/api/notes', 'GET', '위조 로그인 요청 거부', { authorization: 'Bearer invalid' }, denied],
+    // The public synthetic ID is deliberately not a signed login credential.
+    ['forged_login_token', '/api/notes', 'GET', '위조 로그인 요청 거부', { authorization: `Bearer ${UUID}` }, denied],
     ['query_identity_override', `/api/notes?userId=${UUID}&role=instructor`, 'GET', '쿼리 신원·권한으로 접근 불가', {}, denied],
     ['header_identity_override', '/api/notes', 'GET', '헤더 신원·권한으로 접근 불가', { 'x-user-id': UUID, 'x-role': 'instructor' }, denied],
     ['anonymous_announcement_read', '/api/announcements', 'GET', '로그인 없는 공지 접근 거부', {}, denied],
