@@ -10,6 +10,9 @@ import { createDeviceService, enforceDeviceRequest, bodyHash, sha256 } from '../
 import notes from '../api/notes.js';
 import deviceApi from '../api/device.js';
 import legacyDeviceApi from '../api/device/[action].js';
+import { makeFixtureValue } from './fixture-values.mjs';
+
+const fixtureServerKey = makeFixtureValue();
 
 const b64 = bytes => Buffer.from(bytes).toString('base64url');
 const hashBytes = text => Buffer.from(sha256(text), 'hex');
@@ -188,7 +191,7 @@ test('stage 11 real WebAuthn signatures, PostgreSQL approval and protected APIs'
     const originalStep = config.step;
     config.step = 11;
     process.env.SUPABASE_URL = new URL(config.identityProvider.issuer).origin;
-    process.env.SUPABASE_SECRET_KEY = 'TEST_ONLY_DEVICE_SERVER_KEY';
+    process.env.SUPABASE_SECRET_KEY = fixtureServerKey;
     let noteReads = 0;
     let revokeDuringConsume = false;
     globalThis.fetch = async (url, options = {}) => {
@@ -276,7 +279,7 @@ test('stage 11 real WebAuthn signatures, PostgreSQL approval and protected APIs'
     const previousUrl = process.env.SUPABASE_URL;
     const previousKey = process.env.SUPABASE_SECRET_KEY;
     process.env.SUPABASE_URL = new URL(config.identityProvider.issuer).origin;
-    process.env.SUPABASE_SECRET_KEY = 'TEST_ONLY_DEVICE_SERVER_KEY';
+    process.env.SUPABASE_SECRET_KEY = fixtureServerKey;
     globalThis.fetch = async (url, options = {}) => {
       const incoming = new URL(url);
       if (incoming.href === config.judgeIssuer + '/.well-known/jwks.json') return Response.json({ keys: [jwk] });

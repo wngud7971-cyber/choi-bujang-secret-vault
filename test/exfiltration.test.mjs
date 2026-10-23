@@ -4,6 +4,9 @@ import { createContext, SourceTextModule } from 'node:vm';
 import { test } from 'node:test';
 import { decide } from '../xdr/exfiltration/decide.mjs';
 import { readAlert, readAlerts } from '../xdr/exfiltration/read-alerts.mjs';
+import { makeFixtureValue } from './fixture-values.mjs';
+
+const fixtureRedactionMarker = makeFixtureValue();
 
 const fixture = JSON.parse(await readFile(new URL('../xdr/fixtures/exfiltration.json', import.meta.url), 'utf8'));
 const source = await readFile(new URL('../xdr/exfiltration/decide.mjs', import.meta.url), 'utf8');
@@ -12,7 +15,7 @@ test('exfiltration reader returns 30 five-field rows and redacts secret/account 
   const rows = await readAlerts();
   assert.equal(rows.length, fixture.alerts.length);
   for (const row of rows) assert.deepEqual(Object.keys(row), ['timestamp','srcip','account','level','description']);
-  const secret = 'fixture_sensitive_value';
+  const secret = fixtureRedactionMarker;
   const row = readAlert({data:{srcuser:secret},rule:{description:`password=${secret}\nBearer ${secret} %74%6f%6b%65%6e%3d${secret}`}});
   assert.ok(!JSON.stringify(row).includes(secret));
   assert.match(row.account, /^account-[a-f\d]{12}$/u);
@@ -66,7 +69,7 @@ test('exfiltration single signals, malformed quantities, missing destinations an
 
 test('exfiltration reasons never echo secrets, destination or arbitrary text', () => {
   const alert = structuredClone(fixture.alerts[0]);
-  const secret = 'fixture_sensitive_value';
+  const secret = fixtureRedactionMarker;
   alert.rule.description += ` password=${secret}\n`;
   alert.data.srcuser = secret;
   const result = decide(alert);

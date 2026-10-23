@@ -5,6 +5,17 @@ import { createClient } from '@supabase/supabase-js';
 import { generateKeyPair, SignJWT } from 'jose';
 import config from '../aleph.config.json' with { type: 'json' };
 import handler from '../api/auth/[action].js';
+import { makeFixtureValue } from './fixture-values.mjs';
+
+const fixtureServerKey = makeFixtureValue();
+const fixtureErrorMarker = makeFixtureValue();
+const fixtureAccessToken = makeFixtureValue();
+const fixtureRefreshToken = makeFixtureValue();
+const fixturePassword = makeFixtureValue();
+const fixtureIgnoredApiKey = makeFixtureValue();
+const fixtureIgnoredAuthorization = `Bearer ${makeFixtureValue()}`;
+// Keep three segments so the logout-scope validation is reached.
+const fixtureLogoutAuthorization = `Bearer ${makeFixtureValue()}.${makeFixtureValue()}.${makeFixtureValue()}`;
 
 function recorder() {
   return { headers: {}, statusCode: null, body: null,
@@ -17,8 +28,8 @@ test('auth gateway limits scope, keeps keys server-side and supports the real SD
   const previousFetch = globalThis.fetch;
   const previousUrl = process.env.SUPABASE_URL;
   const previousKey = process.env.SUPABASE_SECRET_KEY;
-  const serverKey = 'TEST_ONLY_SERVER_KEY';
-  const secretSentinel = 'TEST_ONLY_UPSTREAM_DETAIL';
+  const serverKey = fixtureServerKey;
+  const secretSentinel = fixtureErrorMarker;
   const email = ['fixture', 'example.invalid'].join('@');
   const user = { id: '11111111-1111-4111-8111-111111111111', email };
   process.env.SUPABASE_URL = new URL(config.identityProvider.issuer).origin;
@@ -44,15 +55,15 @@ test('auth gateway limits scope, keeps keys server-side and supports the real SD
   try {
     await t.test('password login forwards only credentials and returns only session fields', async () => {
       calls = [];
-      upstream = async () => Response.json({ access_token: 'TEST_ONLY_ACCESS', refresh_token: 'TEST_ONLY_REFRESH',
+      upstream = async () => Response.json({ access_token: fixtureAccessToken, refresh_token: fixtureRefreshToken,
         expires_in: 3600, token_type: 'bearer', user: { ...user, secret: serverKey }, secret: serverKey });
       const response = await call('/api/auth/token?grant_type=password', 'POST', {
-        email, password: 'TEST_ONLY_PASSWORD', url: 'https://attacker.invalid', role: 'service_role', apikey: 'ATTACKER_KEY',
-      }, { authorization: 'Bearer server-auth-proxy', apikey: 'ATTACKER_KEY' });
+        email, password: fixturePassword, url: 'https://attacker.invalid', role: 'service_role', apikey: fixtureIgnoredApiKey,
+      }, { authorization: fixtureIgnoredAuthorization, apikey: fixtureIgnoredApiKey });
       assert.equal(response.statusCode, 200);
       assert.equal(calls.length, 1);
       assert.equal(new URL(calls[0].url).pathname, '/auth/v1/token');
-      assert.deepEqual(JSON.parse(calls[0].options.body), { email, password: 'TEST_ONLY_PASSWORD' });
+      assert.deepEqual(JSON.parse(calls[0].options.body), { email, password: fixturePassword });
       assert.equal(calls[0].options.headers.Authorization, undefined);
       assert.deepEqual(response.body.user, user);
       assert.ok(!JSON.stringify(response.body).includes(serverKey));
@@ -68,17 +79,17 @@ test('auth gateway limits scope, keeps keys server-side and supports the real SD
       assert.equal((await call('/api/auth/token?grant_type=password&redirect_to=https://attacker.invalid', 'POST', {})).statusCode, 400);
       assert.equal((await call('/api/auth/token?grant_type=password', 'POST', {})).statusCode, 400);
       assert.equal((await call('/api/auth/logout?scope=local')).statusCode, 401);
-      assert.equal((await call('/api/auth/logout?scope=global', 'POST', null, { authorization: 'Bearer aaa.bbb.ccc' })).statusCode, 400);
+      assert.equal((await call('/api/auth/logout?scope=global', 'POST', null, { authorization: fixtureLogoutAuthorization })).statusCode, 400);
       assert.equal(calls.length, 0);
     });
     await t.test('upstream errors and missing server configuration return generic errors without secrets', async () => {
       upstream = async () => Response.json({ code: 'invalid_credentials', message: serverKey }, { status: 400 });
-      const denied = await call('/api/auth/token?grant_type=password', 'POST', { email, password: 'TEST_ONLY_PASSWORD' });
+      const denied = await call('/api/auth/token?grant_type=password', 'POST', { email, password: fixturePassword });
       assert.equal(denied.statusCode, 400);
       assert.equal(denied.body.code, 'invalid_credentials');
       assert.ok(!JSON.stringify(denied).includes(serverKey));
       upstream = async () => { throw new Error(secretSentinel); };
-      const unavailable = await call('/api/auth/token?grant_type=refresh_token', 'POST', { refresh_token: 'TEST_ONLY_REFRESH' });
+      const unavailable = await call('/api/auth/token?grant_type=refresh_token', 'POST', { refresh_token: fixtureRefreshToken });
       assert.equal(unavailable.statusCode, 502);
       assert.ok(!JSON.stringify(unavailable).includes(secretSentinel));
       delete process.env.SUPABASE_SECRET_KEY;
@@ -96,7 +107,7 @@ test('auth gateway limits scope, keeps keys server-side and supports the real SD
           return new Response(null, { status: 204 });
         }
         if (url.pathname.endsWith('/user')) return Response.json(user);
-        return Response.json({ access_token: access, refresh_token: 'TEST_ONLY_REFRESH', expires_in: 3600, user });
+        return Response.json({ access_token: access, refresh_token: fixtureRefreshToken, expires_in: 3600, user });
       };
       const sdk = createClient(config.publicAppUrl, 'server-auth-proxy', {
         auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
@@ -109,7 +120,7 @@ test('auth gateway limits scope, keeps keys server-side and supports the real SD
         } },
       });
       try {
-        const login = await sdk.auth.signInWithPassword({ email, password: 'TEST_ONLY_PASSWORD' });
+        const login = await sdk.auth.signInWithPassword({ email, password: fixturePassword });
         assert.equal(login.error, null);
         assert.equal(login.data.session.access_token, access);
         const refreshed = await sdk.auth.refreshSession();

@@ -7,6 +7,11 @@ import { readAlert } from '../xdr/web-injection/read-alerts.mjs';
 import { createDecider } from '../xdr/web-injection/decide.mjs';
 import { matchPatterns } from '../xdr/web-injection/signals.mjs';
 import { askJev, JEV_ENDPOINT } from '../xdr/web-injection/jev.mjs';
+import { makeFixtureValue } from './fixture-values.mjs';
+
+const fixturePassword = makeFixtureValue();
+const fixtureApiKey = makeFixtureValue();
+const fixtureUrlMarker = makeFixtureValue();
 
 const root = new URL('../', import.meta.url);
 const fixture = JSON.parse(await readFile(new URL('xdr/fixtures/web-injection.json', root), 'utf8'));
@@ -127,11 +132,11 @@ test('집계 경보는 서로 더하지 않고 단순 구분자 반복도 승격
 
 test('Jev 요약과 reason에는 주소·계정·비밀값·원문을 넣지 않습니다', async () => {
   let summary;
-  const alert = event({ url: '/notes?q=secret-marker-for-test', description: 'SQL 수업 공지 조회 password=secret-marker-for-test' });
+  const alert = event({ url: `/notes?q=${fixtureUrlMarker}`, description: `SQL 수업 공지 조회 password=${fixtureUrlMarker}` });
   alert.data.srcuser = 'private-account-for-test';
   const decision = await createDecider({ jev: value => { summary = value; return 0.6; } })(alert);
   const exported = JSON.stringify({ summary, reason: decision.reason });
-  for (const value of ['secret-marker-for-test', 'private-account-for-test', '192.0.2.1', '/notes?q=', alert.rule.description]) {
+  for (const value of [fixtureUrlMarker, 'private-account-for-test', '192.0.2.1', '/notes?q=', alert.rule.description]) {
     assert.ok(!exported.includes(value));
   }
   assert.equal(summary.tutorialContext, true);
@@ -139,8 +144,8 @@ test('Jev 요약과 reason에는 주소·계정·비밀값·원문을 넣지 않
 
 test('공식 Jev HTTP 형식과 noul 확률을 사용하고 임의 confidence는 거부합니다', async () => {
   const summary = { patterns: ['sql-injection'], level: 7, attempts: 1,
-    sourceIp: '192.0.2.1', password: 'private-test-marker' };
-  const options = { apiKey: 'test-only-placeholder', fetchImpl: async (url, init) => {
+    sourceIp: '192.0.2.1', password: fixturePassword };
+  const options = { apiKey: fixtureApiKey, fetchImpl: async (url, init) => {
     assert.equal(url.href, JEV_ENDPOINT);
     assert.equal(init.method, 'POST');
     assert.equal(init.redirect, 'error');
@@ -148,7 +153,7 @@ test('공식 Jev HTTP 형식과 noul 확률을 사용하고 임의 confidence는
     assert.equal(body.model, 'jev-latest');
     assert.equal(body.questions.web_injection.type, 'noul');
     assert.ok(!init.body.includes('192.0.2.1'));
-    assert.ok(!init.body.includes('private-test-marker'));
+    assert.ok(!init.body.includes(fixturePassword));
     return { ok: true, json: async () => ({ answers: { web_injection: { type: 'noul', noul: 0.72 } } }) };
   } };
   assert.equal(await askJev(summary, options), 0.72);

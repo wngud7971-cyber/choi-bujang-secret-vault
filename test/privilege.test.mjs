@@ -4,6 +4,9 @@ import { createContext, SourceTextModule } from 'node:vm';
 import { test } from 'node:test';
 import { decide } from '../xdr/privilege/decide.mjs';
 import { readAlert, readAlerts } from '../xdr/privilege/read-alerts.mjs';
+import { makeFixtureValue } from './fixture-values.mjs';
+
+const fixtureRedactionMarker = makeFixtureValue();
 
 const fixture = JSON.parse(await readFile(new URL('../xdr/fixtures/privilege.json', import.meta.url), 'utf8'));
 const source = await readFile(new URL('../xdr/privilege/decide.mjs', import.meta.url), 'utf8');
@@ -12,7 +15,7 @@ test('privilege reader preserves 26 rows, redacts credentials and emits only fiv
   const rows = await readAlerts();
   assert.equal(rows.length, fixture.alerts.length);
   for (const row of rows) assert.deepEqual(Object.keys(row), ['timestamp', 'srcip', 'account', 'level', 'description']);
-  const secret = 'fixture_sensitive_value';
+  const secret = fixtureRedactionMarker;
   const row = readAlert({ data: { srcuser: secret }, rule: { description: `password=${secret}\nBearer ${secret} %74%6f%6b%65%6e%3d${secret}` } });
   assert.match(row.account, /^account-[a-f\d]{12}$/u);
   assert.ok(!JSON.stringify(row).includes(secret) && !row.description.includes('\n'));
@@ -70,7 +73,7 @@ test('privilege single signals, failures, approval, missing evidence and invalid
 });
 
 test('privilege reasons never echo account, command, arbitrary description or credentials', () => {
-  const secret = 'fixture_sensitive_value';
+  const secret = fixtureRedactionMarker;
   const alert = structuredClone(fixture.alerts[0]);
   alert.rule.description += ` password=${secret}\n`;
   alert.data.srcuser = secret;

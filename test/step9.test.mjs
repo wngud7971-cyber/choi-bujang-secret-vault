@@ -6,6 +6,9 @@ import { checkDetectionIsolation } from '../scripts/detect-isolation-check.mjs';
 import { decide } from '../src/decider.mjs';
 import { fixtureRequests } from '../scripts/fixture-7.mjs';
 import { runAttackChecks } from '../src/attack-check.mjs';
+import { makeFixtureValue } from './fixture-values.mjs';
+
+const fixtureIgnoredToken = makeFixtureValue();
 
 for (const fixture of detectionFixtures()) test(`9단계 탐지: ${fixture.name}`, () => {
   const before = JSON.stringify(fixture.events);
@@ -71,7 +74,7 @@ test('9단계 중복: 같은 요청 ID의 충돌 복사본은 입력 순서와 �
   for (const batch of [[...events, conflict], [conflict, ...events], [...events, conflict].reverse()]) {
     assert.deepEqual(detect(batch), { action: 'observe' });
   }
-  assert.deepEqual(detect([...events, { ...events[0], token: 'SECRET_IGNORED_SENTINEL' }]), proposal());
+  assert.deepEqual(detect([...events, { ...events[0], token: fixtureIgnoredToken }]), proposal());
 });
 
 test('9단계 결정: 가장 먼저 임계치를 넘은 기기 한 개만 제안하고 정상 판정 형식을 보존', () => {

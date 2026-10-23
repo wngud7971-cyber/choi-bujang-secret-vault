@@ -6,6 +6,9 @@ import config from '../aleph.config.json' with { type: 'json' };
 // Stage 11 signatures and the current APIs are exercised by step11-device.test.mjs.
 config.step = 10;
 import handler from '../api/notes.js';
+import { makeFixtureValue } from './fixture-values.mjs';
+
+const fixtureServerKey = makeFixtureValue();
 
 function responseRecorder() {
   return {
@@ -22,7 +25,7 @@ test('stage 4 authenticates and restricts all note operations to the verified ow
   const oldKey = process.env.SUPABASE_SECRET_KEY;
   const oldConsole = { log: console.log, warn: console.warn, error: console.error };
   const logs = [];
-  const testKey = 'TEST_ONLY_SERVER_KEY';
+  const testKey = fixtureServerKey;
   const student = await generateKeyPair('ES256');
   const judge = await generateKeyPair('ES256');
   const attacker = await generateKeyPair('ES256');
