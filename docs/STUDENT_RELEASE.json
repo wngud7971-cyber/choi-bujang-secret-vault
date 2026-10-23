@@ -5,22 +5,29 @@
   "agentName": "케셰브_배주형",
   "repository": "https://github.com/wngud7971-cyber/choi-bujang-secret-vault",
   "submissionBranch": "codex/step22-from-main",
-  "reproducedCommit": "20a9f293568df764bff41e889b6bb6d119d1925f",
-  "reproductionBranch": "codex/step22-review",
-  "reproductionDate": "2026-10-23",
+  "reproducedCommit": "c762276970870ec4f5548ef589c1d5cda732ee75",
+  "reproductionBranch": "codex/step22-from-main",
+  "reproductionDate": "2026-10-24",
   "reproductionTimeZone": "Asia/Seoul",
   "reproductionEvidence": {
     "mockChecks": 9,
-    "mockCheckedAt": "2026-10-23T13:47:04.400Z",
-    "httpCheckedAt": "2026-10-23T13:48:02.135Z",
-    "stopAndRestartVerified": true
+    "mockCheckedAt": "2026-10-23T15:29:30.999Z",
+    "httpCheckedAt": "2026-10-23T15:29:47.566Z",
+    "stopAndRestartVerified": true,
+    "browserUi": "not_run"
   },
   "finalSubmissionRelationship": {
-    "sourceMainCommit": "8ba96e5b11ffa406468f38ea20a91c8389e78e96",
-    "packagingOnly": true,
-    "currentPackageReproduction": "pending",
+    "parentCommit": "c762276970870ec4f5548ef589c1d5cda732ee75",
+    "mergedMainCommit": "91ac3ad22488a8c526daf90ae8decc4867b757f7",
+    "documentationOnly": true,
+    "changedFiles": [
+      "README.md",
+      "docs/STUDENT_REPRODUCTION.md",
+      "docs/STUDENT_RELEASE.json"
+    ],
     "runtimeCodeChanged": false,
-    "applicationTreeUnchanged": true
+    "applicationTreeUnchanged": true,
+    "finalCommitReexecuted": false
   },
   "commitResolution": "git rev-parse HEAD in the fresh reproduction clone",
   "applicationTree": "95d7a38af4fe2da9c911a740fe4f060b57499b2a",
@@ -28,13 +35,14 @@
   "diagnosticsComponentVersion": "0.1.0",
   "testedNode": "24.19.0",
   "testedPlatform": "win32-x64",
-  "scope": "on-client runtime and student handover documents; full main preserved separately",
+  "scope": "on-client runtime and matching student documents; full stages 1-20 and XDR preserved in sourceMainCommit",
   "realActionExecution": "not_ready_not_run",
   "operationalAuthentication": "not_verified",
   "paidAi": "not_run",
   "externalOsv": "not_run",
   "productionCertified": false,
   "reproductionRecord": "docs/STUDENT_REPRODUCTION.md",
-  "mainPreservationCommit": "8ba96e5b11ffa406468f38ea20a91c8389e78e96",
-  "sourceMainCommit": "8ba96e5b11ffa406468f38ea20a91c8389e78e96"
+  "sourceMainCommit": "91ac3ad22488a8c526daf90ae8decc4867b757f7",
+  "initialMainCommit": "8ba96e5b11ffa406468f38ea20a91c8389e78e96",
+  "mainPreservationCommit": "91ac3ad22488a8c526daf90ae8decc4867b757f7"
 }

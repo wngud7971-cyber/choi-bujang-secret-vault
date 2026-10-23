@@ -1,6 +1,6 @@
 # 케셰브_배주형 · 22단계 제출 검토본
 
-학생 릴리스 **0.22.0-validation.1 · 검증 중**입니다. 수정된 22단계 문서를 main에 먼저 저장한 커밋 `8ba96e5b11ffa406468f38ea20a91c8389e78e96`에서 이 브랜치를 만들었습니다. 브랜치는 **codex/step22-from-main**이며 on-client 전체와 21·22단계 학생 문서만 포함합니다. 전체 프로젝트는 main `8ba96e5b11ffa406468f38ea20a91c8389e78e96`에 보존했습니다. main의 기능·데이터·Git 기록을 삭제하거나 검토본으로 덮어쓰지 않습니다.
+학생 릴리스 **0.22.0-validation.1 · 검증 중**입니다. 수정된 22단계 문서를 main에 먼저 저장했고, 완성된 main 커밋 `91ac3ad22488a8c526daf90ae8decc4867b757f7`을 반영해 이 검토본을 구성했습니다. 브랜치는 **codex/step22-from-main**이며 on-client 전체와 21·22단계 학생 문서만 포함합니다. 전체 프로젝트는 main `91ac3ad22488a8c526daf90ae8decc4867b757f7`에 보존했습니다. main의 기능·데이터·Git 기록을 삭제하거나 검토본으로 덮어쓰지 않습니다.
 
 [새 폴더 재현·단계별 확인·데이터 보존 계획](docs/STUDENT_REPRODUCTION.md) · [실행 설명서·글 구성도](docs/STUDENT_RUNBOOK.md) · [버전 기록](docs/STUDENT_RELEASE.json)
 
