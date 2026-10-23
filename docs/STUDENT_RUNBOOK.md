@@ -1,6 +1,6 @@
 # 케셰브_배주형 학생용 실행 설명서와 시스템 구성도
 
-21단계 학생 작성 문서이며, 22단계 재현에서는 clone한 폴더 기준의 상대 경로 실행을 사용합니다. 새 폴더 재현·데이터 보존·버전 기록은 [STUDENT_REPRODUCTION.md](STUDENT_REPRODUCTION.md)를 함께 봅니다. 13~20단계의 학생 화면과 기존 1~12단계·XDR 프로젝트를 보존한 상태를 설명합니다. 이번 단계에서는 실행 코드·UI·인증 설정을 변경하지 않습니다.
+21단계 학생 작성 문서입니다. 13~20단계의 학생 화면과 기존 1~12단계·XDR 프로젝트를 보존한 상태를 설명합니다. 이번 단계에서는 실행 코드·UI·인증 설정을 변경하지 않습니다.
 
 문서 대조 기준은 main의 20단계 코드 `6edbc7ae70efb11f2e3976aa8a50c6a34297d7cf`입니다. 로컬 `on-client/student/extension.mjs`와 이 커밋의 파일이 줄바꿈을 제외하고 일치하는 것을 확인했습니다. 이 번호는 문서 작성 기준이며, 21단계 제출에는 **이 문서가 포함된 새 커밋**을 사용합니다.
 
@@ -70,8 +70,7 @@ choi-bujang-secret-vault/
 기존 작업과 실행 중인 다른 프로그램을 보존합니다. 새 PowerShell 창을 열고 다음 순서로 실행합니다.
 
 ```powershell
-# 해당 커밋의 저장소 최상위에서 시작합니다.
-Set-Location -LiteralPath .\on-client
+Set-Location -LiteralPath 'C:\Users\82109\Documents\ChatGPT\hackert0n\choi-bujang-secret-vault\on-client'
 node --version
 node --check .\student\extension.mjs
 node .\src\server.mjs
