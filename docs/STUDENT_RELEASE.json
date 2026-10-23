@@ -4,18 +4,19 @@
   "state": "validation",
   "agentName": "케셰브_배주형",
   "repository": "https://github.com/wngud7971-cyber/choi-bujang-secret-vault",
-  "submissionBranch": "main",
+  "submissionBranch": "codex/step22-review",
   "commitResolution": "git rev-parse HEAD in the fresh reproduction clone",
   "applicationTree": "95d7a38af4fe2da9c911a740fe4f060b57499b2a",
   "starterVersion": "0.2.11",
   "diagnosticsComponentVersion": "0.1.0",
   "testedNode": "24.19.0",
   "testedPlatform": "win32-x64",
-  "scope": "on-client runtime; earlier project preserved without new deployment verification",
+  "scope": "on-client runtime and student handover documents; full main preserved separately",
   "realActionExecution": "not_ready_not_run",
   "operationalAuthentication": "not_verified",
   "paidAi": "not_run",
   "externalOsv": "not_run",
   "productionCertified": false,
-  "reproductionRecord": "docs/STUDENT_REPRODUCTION.md"
+  "reproductionRecord": "docs/STUDENT_REPRODUCTION.md",
+  "mainPreservationCommit": "cbd174d7cd0fcfec91331f725b3e7adcb7322dd7"
 }

@@ -6,12 +6,12 @@
 |---|---|
 | 학생 릴리스 | **0.22.0-validation.1 · 검증 중인 버전**. v1.0·운영 인증으로 표시하지 않음 |
 | 저장소 | `https://github.com/wngud7971-cyber/choi-bujang-secret-vault` |
-| 제출 브랜치 | **main**. 별도 검토본을 만들면 그 브랜치의 문서·커밋으로 다시 재현하며 main 결과를 옮겨 통과로 표시하지 않음 |
+| 제출 브랜치 | **codex/step22-review**. main 보존본과 분리된 해당 커밋을 새 clone에서 검증하며, 이전 main의 결과를 이 커밋의 성공으로 합산하지 않음 |
 | 최종 40자리 커밋 | 새 재현 clone의 `git rev-parse HEAD` 출력으로 고정. 실제 출력은 프로젝트 밖의 재현 보고서에도 기록함. 자기 해시를 포함할 수 없는 문서 본문에 임의 해시를 쓰지 않음 |
 | 실행 앱의 Git tree | `95d7a38af4fe2da9c911a740fe4f060b57499b2a` (`git rev-parse HEAD:on-client`로 대조) |
 | 버전 파일 | [STUDENT_RELEASE.json](STUDENT_RELEASE.json). 앱 시작 틀 0.2.11·도움정보 component 0.1.0과 학생 릴리스를 구분 |
-| 재현 회차·시간대 | **2026-10-23 KST, 22단계 main 재현 회차**. 정확한 시작·종료 시각과 실제 커밋은 원문 밖의 실행 로그에 함께 기록 |
-| 범위 | 이 커밋의 `on-client` 실행·학생 화면·문서. 기존 1~12단계·XDR 코드·설정·기록은 main에 보존하되 새 운영 배포·DB 동작을 검증한 것으로 합산하지 않음 |
+| 재현 회차·시간대 | **2026-10-23 KST, 22단계 검토 브랜치 재현 회차**. 정확한 시작·종료 시각과 실제 커밋은 원문 밖의 실행 로그에 함께 기록 |
+| 범위 | 이 커밋의 `on-client` 실행·학생 화면·문서. 기존 1~12단계·XDR 코드·설정·기록은 main cbd174d7cd0fcfec91331f725b3e7adcb7322dd7에 보존하며 이 검토 브랜치에 포함하지 않음. 새 운영 배포·DB 동작 검증으로 합산하지 않음 |
 
 이 문서·README·실행 설명서·버전 기록을 같은 제출 커밋에 둡니다. 문서 작성 이후 **그 제출 커밋을 새 빈 폴더에 clone하여** 코드·문서의 관찰값을 다시 대조합니다. 수정으로 커밋이 바뀌면 새 커밋을 선택해 재현하며, 서로 다른 커밋에서 통과한 항목을 합쳐 전체 성공으로 쓰지 않습니다. 최종 커밋의 실제 40자리 값은 복제한 폴더에서 읽은 값이며 문서 작성 기준이던 이전 단계 커밋 번호와 구분합니다.
 
@@ -27,7 +27,7 @@
 node --version
 git --version
 $repoUrl = 'https://github.com/wngud7971-cyber/choi-bujang-secret-vault'
-$releaseBranch = 'main'
+$releaseBranch = 'codex/step22-review'
 $targetCommit = Read-Host '제출할 실제 40자리 커밋'
 if ($targetCommit -notmatch '^[0-9a-f]{40}$') { throw '40자리 커밋을 확인하세요.' }
 git clone --no-checkout --single-branch --branch $releaseBranch $repoUrl keshev-repro
@@ -48,7 +48,7 @@ node --check .\student\extension.mjs
 node .\src\server.mjs
 ```
 
-Node.js v24.19.0으로 확인합니다. 제공 실행 도구는 22~24를 허용하지만 다른 버전의 전체 재현은 미확인입니다. 이 앱에는 외부 npm 의존성과 package-lock.json이 없어 추가 npm 설치 단계가 없습니다. main 루트의 별도 package.json·lock은 과거 프로젝트용이며 로컬 앱 실행 절차와 섞지 않습니다. `npm`이 없는 환경에서도 위 Node 명령을 사용합니다. 포트가 비어 있고 ON_PORT가 미설정이면 주소는 **http://127.0.0.1:5189/** 입니다.
+Node.js v24.19.0으로 확인합니다. 제공 실행 도구는 22~24를 허용하지만 다른 버전의 전체 재현은 미확인입니다. 이 앱에는 외부 npm 의존성과 package-lock.json이 없어 추가 npm 설치 단계가 없습니다. 이 검토 브랜치에는 루트 package.json·lock이 없고, main에 보존한 과거 프로젝트의 설치 절차와 섞지 않습니다. `npm`이 없는 환경에서도 위 Node 명령을 사용합니다. 포트가 비어 있고 ON_PORT가 미설정이면 주소는 **http://127.0.0.1:5189/** 입니다.
 
 기본 로그 `케셰브 연결 확인: http://127.0.0.1:5189` 뒤 브라우저에서 주소를 엽니다. 「보호 현황」과 학생 표시 영역을 확인합니다. 실제 설정이 없는 기본 실행에서 `ENGINE_NOT_CONNECTED`·연결 없음은 예상된 상태이며 로그인 성공이 아닙니다. 시작 로그와 정적 HTTP 200은 실제 시스템 연결 성공을 뜻하지 않습니다.
 
@@ -65,16 +65,16 @@ demo는 기본 서버를 먼저 종료한 후 같은 폴더에서 `node .\src\se
 | 단계·기능 | 방법·관찰 결과 | 근거·확인 시각 | 미확인·제한 |
 |---|---|---|---|
 | 13 신원·기기·세션 | 모의 DOM에서 이름·원래 코드 unknown·active 표시. 실제 새 서버의 demo 자료와 기본 연결 없음 응답을 확인 | 제출 커밋의 renderIdentity, 모의 보고서 stage=13, 로컬 HTTP·브라우저 관찰 / 이 재현 회차 | 실제 개인 계정·기기 보안 검증은 미확인 |
-| 14 업무 앱 판정 | 모의 DOM에서 allow·deny·challenge·unknown, 사유·시각, 요청 실패 구분. demo 서버 library=allow·repository=deny 확인 | renderDecision, stage=14 보고서, POST /api/access와 업무 앱 화면 / 이 재현 회차 | 운영 정책 변경·실제 앱 접속은 미실행. allow는 접속 성공 보증 아님 |
-| 15 보안 기록 | 모의 DOM에서 기록 필터·상세 근거·규칙·상태와 오류 후 상세 제거 확인. demo의 event-01 확인 | renderEvents, stage=15 보고서와 보안 기록 화면 / 이 재현 회차 | 실제 XDR 경보·운영자 전체 기록 조회 미확인 |
-| 16 상태·알림·진단 | 모의 DOM에서 빈 기기·빈 세션·loading·error·알림·진단 실패 시 복사 비활성화 구분. 기본/demo 도움정보는 수동 요청으로 조회 | renderStatus, stage=16 보고서와 보호 현황 / 이 재현 회차 | 데이터 없음과 요청 실패는 서로 다름. 실제 기기·과거 전체 세션 목록의 확인 아님 |
+| 14 업무 앱 판정 | 모의 DOM에서 allow·deny·challenge·unknown, 사유·시각, 요청 실패 구분. demo 서버 library=allow·repository=deny 확인 | renderDecision, stage=14 모의 보고서, 실제 POST /api/access 응답 (업무 앱 화면 조작은 미확인) / 이 재현 회차 | 운영 정책 변경·실제 앱 접속은 미실행. allow는 접속 성공 보증 아님 |
+| 15 보안 기록 | 모의 DOM에서 기록 필터·상세 근거·규칙·상태와 오류 후 상세 제거 확인. demo의 event-01 확인 | renderEvents, stage=15 모의 보고서와 실제 GET /api/events 응답 (보안 기록 화면 조작은 미확인) / 이 재현 회차 | 실제 XDR 경보·운영자 전체 기록 조회 미확인 |
+| 16 상태·알림·진단 | 모의 DOM에서 빈 기기·빈 세션·loading·error·알림·진단 실패 시 복사 비활성화 구분. 기본/demo 도움정보는 도구의 명시적 로컬 HTTP 요청으로 조회 | renderStatus, stage=16 모의 보고서와 실제 GET /api/diagnostics 응답 / 이 재현 회차 | 데이터 없음과 요청 실패는 서로 다름. 실제 기기·과거 전체 세션 목록의 확인 아님 |
 | 17 AI 연결 점검 | 모의 입력의 test 연결·오류를 구분하고 '사건 설명은 아직 실행하지 않았습니다' 표시 확인 | renderAiConnection, stage=17 모의 보고서 / 이 재현 회차 | 실제 계정 연결·AI 앱 승인·모델 호출은 미확인·미실행 |
 | 18 근거 있는 AI 설명 | 모의 응답의 근거·규칙·미실행 조건이 맞으면 표시, 없는 근거 ID는 실패로 처리 | renderExplanation, stage=18 모의 보고서 / 이 재현 회차 | 실제 유료 AI 요청 없음. 합성 설명을 모델 실행 증거로 쓰지 않음 |
 | 19 조치 결과 | 모의 DOM에서 pending ACK·unknown·effectApplied 확인을 구분 | renderAction, stage=19 모의 보고서 / 이 재현 회차 | **실제 집행 연결 미준비·미실행**. 차단·회수·복구 효과 확인 아님 |
 | 20 버전·OSV | 모의 DOM에서 정확한 1.2.3·출처·시각·부분 취약점 ID 보존, loading/error 시 이전 표 제거. 실제 서버는 not_configured | renderVulnerabilities, stage=20 모의 보고서, GET /api/vulnerabilities / 이 재현 회차 | 외부 OSV 조회·승인 목록 변경·의존성 버전 변경 없음. 미조회는 취약점 없음 아님 |
 | 21 실행 설명서 | 새 폴더의 해당 커밋에서 상대 경로 실행·문법 검사·기본/demo 시작·HTTP 응답·종료·재실행, 학생 문서·링크·설정 견본 대조 | stage=21 원문 점검, HTTP·브라우저 관찰 / 이 재현 회차 | 사용자 본인의 별도 새 PC·새 PowerShell 전체 따라 하기 및 운영 연결은 미확인 |
 
-모의 보고서는 실제 학생 함수를 불러오되 가상 DOM·가상 자료를 사용한 도구 점검입니다. HTTP 검사는 실제 Node 서버를 실행한 결과입니다. 브라우저 관찰은 실제 표시된 화면의 관찰이며, 사용자 본인이 직접 수행했다는 진술로 바꾸지 않습니다. 재현 중 실제 유료 AI·보안 조치·단계 제출은 자동 실행하지 않습니다.
+모의 보고서는 실제 학생 함수를 불러오되 가상 DOM·가상 자료를 사용한 도구 점검입니다. HTTP 검사는 실제 Node 서버를 실행한 결과입니다. 브라우저 관찰은 새 clone의 기본 보호 현황 로드에 한정하며, demo 버튼·필터·키보드 조작은 미확인입니다. 사용자 본인이 직접 수행했다는 진술로 바꾸지 않습니다. 재현 중 실제 유료 AI·보안 조치·단계 제출은 자동 실행하지 않습니다.
 
 ## 4. 데이터 보존·백업·복원 계획
 
