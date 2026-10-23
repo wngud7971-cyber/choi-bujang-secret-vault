@@ -2,6 +2,8 @@ artifacts/
 bundle-notes.json
 .env
 .env.*
+# Only the non-secret runtime example is public; real .env files remain ignored.
+!on-client/.env.example
 node_modules/
 public/aleph.json
 # Local SQL seed contains note bodies; keep it out of Git and public output.
