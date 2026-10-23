@@ -17,17 +17,22 @@
     "browserUi": "not_run"
   },
   "finalSubmissionRelationship": {
-    "parentCommit": "164b937671cb9d2ac4581368507eeb3b263f8b59",
+    "parentCommit": "8ba96e5b11ffa406468f38ea20a91c8389e78e96",
     "documentationOnly": true,
     "changedFiles": [
-      "README.md",
-      "docs/STUDENT_RUNBOOK.md",
       "docs/STUDENT_REPRODUCTION.md",
       "docs/STUDENT_RELEASE.json"
     ],
     "runtimeCodeChanged": false,
     "applicationTreeUnchanged": true,
-    "finalCommitReexecuted": false
+    "finalCommitReexecuted": false,
+    "documentationAdditionCommit": "8ba96e5b11ffa406468f38ea20a91c8389e78e96",
+    "changedSinceReproduction": [
+      "README.md",
+      "docs/STUDENT_RUNBOOK.md",
+      "docs/STUDENT_REPRODUCTION.md",
+      "docs/STUDENT_RELEASE.json"
+    ]
   },
   "commitResolution": "git rev-parse HEAD in the fresh reproduction clone",
   "applicationTree": "95d7a38af4fe2da9c911a740fe4f060b57499b2a",
