@@ -1,0 +1,45 @@
+{
+  "schema": "keshev.student.release.v1",
+  "release": "0.22.0-validation.1",
+  "state": "validation",
+  "agentName": "케셰브_배주형",
+  "repository": "https://github.com/wngud7971-cyber/choi-bujang-secret-vault",
+  "submissionBranch": "main",
+  "reproducedCommit": "164b937671cb9d2ac4581368507eeb3b263f8b59",
+  "reproductionBranch": "main",
+  "reproductionDate": "2026-10-24",
+  "reproductionTimeZone": "Asia/Seoul",
+  "reproductionEvidence": {
+    "mockChecks": 9,
+    "mockCheckedAt": "2026-10-23T15:19:28.441Z",
+    "httpCheckedAt": "2026-10-23T15:22:49.949Z",
+    "stopAndRestartVerified": true,
+    "browserUi": "not_run"
+  },
+  "finalSubmissionRelationship": {
+    "parentCommit": "164b937671cb9d2ac4581368507eeb3b263f8b59",
+    "documentationOnly": true,
+    "changedFiles": [
+      "README.md",
+      "docs/STUDENT_RUNBOOK.md",
+      "docs/STUDENT_REPRODUCTION.md",
+      "docs/STUDENT_RELEASE.json"
+    ],
+    "runtimeCodeChanged": false,
+    "applicationTreeUnchanged": true,
+    "finalCommitReexecuted": false
+  },
+  "commitResolution": "git rev-parse HEAD in the fresh reproduction clone",
+  "applicationTree": "95d7a38af4fe2da9c911a740fe4f060b57499b2a",
+  "starterVersion": "0.2.11",
+  "diagnosticsComponentVersion": "0.1.0",
+  "testedNode": "24.19.0",
+  "testedPlatform": "win32-x64",
+  "scope": "on-client runtime reproduction; complete stages 1-20 and XDR retained in main without new production verification",
+  "realActionExecution": "not_ready_not_run",
+  "operationalAuthentication": "not_verified",
+  "paidAi": "not_run",
+  "externalOsv": "not_run",
+  "productionCertified": false,
+  "reproductionRecord": "docs/STUDENT_REPRODUCTION.md"
+}
