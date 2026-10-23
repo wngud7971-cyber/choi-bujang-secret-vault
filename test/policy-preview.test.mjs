@@ -7,9 +7,6 @@ import {
   BASELINE_COMMIT, POLICY_FILE, BASELINE_SHA256, BACKUP_PATH, TEST_POLICY_PATH,
   MANIFEST_PATH, SOURCE_BASELINE_PATH, loadPolicyPreview, policyHash, previewPolicy,
 } from '../src/policy-preview.mjs';
-import { makeFixtureValue } from './fixture-values.mjs';
-
-const fixtureErrorMarker = makeFixtureValue();
 
 const root = resolve(import.meta.dirname, '..');
 const manifest = JSON.parse(await readFile(resolve(root, MANIFEST_PATH), 'utf8'));
@@ -81,7 +78,7 @@ test('10단계 검증: 사본과 검증 기록을 함께 바꿔도 지정한 커
 });
 
 test('10단계 비교: 시험 정책의 임의 본문을 실행하거나 출력하지 않음', () => {
-  const secret = fixtureErrorMarker;
+  const secret = 'SYNTHETIC_SECRET_DO_NOT_PRINT';
   const current = Buffer.from(`throw new Error('${secret}');\n`);
   const result = previewPolicy({ manifest, backup, current });
   assert.equal(result.changed, true);

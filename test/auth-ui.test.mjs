@@ -3,17 +3,13 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { test } from 'node:test';
 import { createAccessGate } from '../public/access-state.js';
-import { makeFixtureValue } from './fixture-values.mjs';
-
-const fixtureAccessTokenA = makeFixtureValue();
-const fixtureAccessTokenB = makeFixtureValue();
 
 const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
 const moduleSource = html.match(/<script type="module" id="auth-script">([\s\S]*?)<\/script>/u)[1];
 assert.match(moduleSource, /import \{ createAccessGate \} from '\/access-state\.js';/u);
 const source = moduleSource.replace("import { createAccessGate } from '/access-state.js';", '');
-const sessionA = { user: { email: 'Test account A' }, access_token: fixtureAccessTokenA };
-const sessionB = { user: { email: 'Test account B' }, access_token: fixtureAccessTokenB };
+const sessionA = { user: { email: 'Test account A' }, access_token: 'TEST_ONLY_FIRST_TOKEN' };
+const sessionB = { user: { email: 'Test account B' }, access_token: 'TEST_ONLY_SECOND_TOKEN' };
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
 async function page(initialSession = null, autoApprove = true) {

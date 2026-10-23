@@ -4,9 +4,6 @@ import { createContext, SourceTextModule } from 'node:vm';
 import { test } from 'node:test';
 import { decide } from '../xdr/known-cve/decide.mjs';
 import { readAlert, readAlerts } from '../xdr/known-cve/read-alerts.mjs';
-import { makeFixtureValue } from './fixture-values.mjs';
-
-const fixtureRedactionMarker = makeFixtureValue();
 
 const fixture = JSON.parse(await readFile(new URL('../xdr/fixtures/known-cve.json', import.meta.url), 'utf8'));
 const source = await readFile(new URL('../xdr/known-cve/decide.mjs', import.meta.url), 'utf8');
@@ -23,7 +20,7 @@ test('원본 24건과 읽은 24줄은 같고 다섯 항목만 출력합니다', 
 });
 
 test('읽기는 계정을 가명화하고 설명의 비밀값·인코딩·줄바꿈을 가립니다', () => {
-  const secret = fixtureRedactionMarker;
+  const secret = 'fixture_sensitive_value';
   const row = readAlert({ timestamp: fixture.alerts[0].timestamp,
     data: { srcip: '192.0.2.205', srcuser: secret, headers: { authorization: secret } },
     rule: { level: 12, description: `password=${secret}\nBearer ${secret} %74%6f%6b%65%6e%3d${secret}` } });

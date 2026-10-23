@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import config from '../aleph.config.json' with { type: 'json' };
 import notes from '../api/notes.js';
@@ -36,7 +35,7 @@ export async function checkResourceApis() {
   const grant = { issuer: config.identityProvider.issuer, subject_id: users.teacher,
     permission: 'announcement_editor' };
   process.env.SUPABASE_URL = new URL(config.identityProvider.issuer).origin;
-  process.env.SUPABASE_SECRET_KEY = randomUUID();
+  process.env.SUPABASE_SECRET_KEY = 'TEST_ONLY_ZONE_SERVER_KEY';
   console.warn = message => audit.push(message);
   globalThis.fetch = async (value, options) => {
     const url = new URL(String(value));

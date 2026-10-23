@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
@@ -86,7 +85,7 @@ export async function checkRecovery() {
       [ids.a, users.a, 'Synthetic unrelated note', 'Synthetic unrelated content', ids.other, users.b]);
     const unrelated = [await noteRow(ids.a), await noteRow(ids.other)];
     process.env.SUPABASE_URL = new URL(config.identityProvider.issuer).origin;
-    process.env.SUPABASE_SECRET_KEY = randomUUID();
+    process.env.SUPABASE_SECRET_KEY = 'TEST_ONLY_RECOVERY_SERVER_KEY';
     console.warn = value => logs.push(value);
     globalThis.fetch = async (value, options) => {
       const url = new URL(String(value));

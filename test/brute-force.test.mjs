@@ -11,13 +11,6 @@ import { decide as original } from '../src/decider.mjs';
 import { createZtnaConnection } from '../src/ztna.mjs';
 import { askJev, JEV_ENDPOINT } from '../xdr/brute-force/jev.mjs';
 import { fixtureRequests } from '../scripts/fixture-7.mjs';
-import { makeFixtureValue } from './fixture-values.mjs';
-
-const fixturePassword = makeFixtureValue();
-const fixtureApiKey = makeFixtureValue();
-const fixtureInvalidHeader = makeFixtureValue() + '\n' + makeFixtureValue();
-const fixtureHiddenToken = makeFixtureValue();
-const fixtureBearerToken = makeFixtureValue();
 
 const root = new URL('../', import.meta.url);
 const fixture = JSON.parse(await readFile(new URL('../xdr/fixtures/brute-force.json', import.meta.url)));
@@ -36,10 +29,10 @@ test('읽기 결과는 원본과 같은 28행이며 허용한 다섯 항목만 �
 test('원문 경보의 비밀값·계정 개인정보·줄바꿈을 출력하지 않습니다', () => {
   const alert = copy(fixture.alerts[0]);
   alert.data.srcuser = 'private@example.invalid';
-  alert.data.password = fixturePassword;
-  alert.rule.description += ` password="${fixturePassword}" {"token":"${fixtureHiddenToken}"}\nBearer ${fixtureBearerToken}`;
+  alert.data.password = 'private-value';
+  alert.rule.description += ' password="private-value" {"token":"hidden-value"}\nBearer private-token-value';
   const text = JSON.stringify(readAlert(alert));
-  for (const value of [fixturePassword, fixtureHiddenToken, fixtureBearerToken, 'private@example.invalid']) assert.ok(!text.includes(value));
+  for (const value of ['private-value', 'hidden-value', 'private-token-value', 'private@example.invalid']) assert.ok(!text.includes(value));
   assert.ok(!readAlert(alert).description.includes('\n'));
 });
 
@@ -270,12 +263,12 @@ test('공식 Jev 요청·Noul 응답이 판단·거부 규칙·실제 판정기�
   const alert = copy(fixture.alerts[10]);
   let calls = 0;
   const jev = summary => askJev(summary, {
-    apiKey: fixtureApiKey,
+    apiKey: 'test-value',
     fetchImpl: async (url, options) => {
       calls += 1;
       assert.equal(url.href, JEV_ENDPOINT);
       assert.equal(options.method, 'POST');
-      assert.equal(options.headers.Authorization, `Bearer ${fixtureApiKey}`);
+      assert.equal(options.headers.Authorization, 'Bearer test-value');
       const body = JSON.parse(options.body);
       assert.equal(body.model, 'jev-latest');
       assert.equal(body.state.pattern, 'repeated-failures');
@@ -308,12 +301,12 @@ test('Jev 미설정·HTTP 오류·잘못된 JSON은 안전한 알림으로 처�
   const cases = [
     { apiKey: '' },
     { apiKey: ' ' },
-    { apiKey: fixtureInvalidHeader },
-    { apiKey: fixtureApiKey, fetchImpl: async () => new Response('', { status: 503 }) },
-    { apiKey: fixtureApiKey, fetchImpl: async () => new Response('not-json') },
-    { apiKey: fixtureApiKey, fetchImpl: async () => new Response(JSON.stringify({ confidence: 0.9 })) },
-    { apiKey: fixtureApiKey, fetchImpl: async () => new Response(JSON.stringify({ answers: { brute_force: { type: 'noul', noul: '0.9' } } })) },
-    { apiKey: fixtureApiKey, fetchImpl: async () => new Response(JSON.stringify({ answers: { brute_force: { type: 'noul', noul: 1.2 } } })) },
+    { apiKey: 'invalid\nheader' },
+    { apiKey: 'test-value', fetchImpl: async () => new Response('', { status: 503 }) },
+    { apiKey: 'test-value', fetchImpl: async () => new Response('not-json') },
+    { apiKey: 'test-value', fetchImpl: async () => new Response(JSON.stringify({ confidence: 0.9 })) },
+    { apiKey: 'test-value', fetchImpl: async () => new Response(JSON.stringify({ answers: { brute_force: { type: 'noul', noul: '0.9' } } })) },
+    { apiKey: 'test-value', fetchImpl: async () => new Response(JSON.stringify({ answers: { brute_force: { type: 'noul', noul: 1.2 } } })) },
   ];
   for (const options of cases) {
     const out = await createDecider({ jev: summary => askJev(summary, options) })(alert);
@@ -324,9 +317,9 @@ test('Jev 미설정·HTTP 오류·잘못된 JSON은 안전한 알림으로 처�
 
 test('공식 Jev의 공격 확률만 사용하며 다른 확신도와 민감한 입력은 제외합니다', async () => {
   const summary = { pattern: 'repeated-failures', level: 6, failures: 4, accountCount: 1,
-    successAfterFailures: true, password: fixturePassword, srcip: '192.0.2.10', account: 'user01' };
-  const confidence = await askJev(summary, { apiKey: fixtureApiKey, fetchImpl: async (_, options) => {
-    for (const value of [fixturePassword, '192.0.2.10', 'user01']) assert.ok(!options.body.includes(value));
+    successAfterFailures: true, password: 'private-value', srcip: '192.0.2.10', account: 'user01' };
+  const confidence = await askJev(summary, { apiKey: 'test-value', fetchImpl: async (_, options) => {
+    for (const value of ['private-value', '192.0.2.10', 'user01']) assert.ok(!options.body.includes(value));
     return new Response(JSON.stringify({ confidence: 0.99,
       answers: { brute_force: { type: 'noul', noul: 0.1 }, other: { type: 'choice', confidence: 0.99 } },
     }));

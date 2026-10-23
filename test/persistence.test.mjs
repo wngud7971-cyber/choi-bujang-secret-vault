@@ -4,9 +4,6 @@ import { createContext, SourceTextModule } from 'node:vm';
 import { test } from 'node:test';
 import { decide } from '../xdr/persistence/decide.mjs';
 import { readAlert, readAlerts } from '../xdr/persistence/read-alerts.mjs';
-import { makeFixtureValue } from './fixture-values.mjs';
-
-const fixtureRedactionMarker = makeFixtureValue();
 
 const fixture = JSON.parse(await readFile(new URL('../xdr/fixtures/persistence.json', import.meta.url), 'utf8'));
 const source = await readFile(new URL('../xdr/persistence/decide.mjs', import.meta.url), 'utf8');
@@ -15,7 +12,7 @@ test('persistence reader: 24 original alerts become 24 redacted five-field rows'
   const rows = await readAlerts();
   assert.equal(rows.length, 24);
   for (const row of rows) assert.deepEqual(Object.keys(row), ['timestamp', 'srcip', 'account', 'level', 'description']);
-  const secret = fixtureRedactionMarker;
+  const secret = 'fixture_sensitive_value';
   const row = readAlert({ timestamp: fixture.alerts[0].timestamp, data: { srcip: '192.0.2.205', srcuser: secret },
     rule: { level: 12, description: `password=${secret}\nBearer ${secret} %74%6f%6b%65%6e%3d${secret}` } });
   assert.match(row.account, /^account-[a-f\d]{12}$/u);
