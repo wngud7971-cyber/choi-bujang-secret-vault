@@ -1,7 +1,9 @@
 // Alekov 학생 클라이언트 — 제공 공통 UI.
 // 모든 외부·서버 문자열은 textContent로만 표시한다. innerHTML/insertAdjacentHTML 사용 금지.
-// 자동 재시도 없음: 모든 요청은 사용자 동작 또는 최초 1회 로드에서만 일어난다.
+// 보안·AI 요청은 사용자 동작 또는 최초 로드에서 수행한다. 별도 PC 실측만 보이는 화면에서 5초 갱신한다.
 import { normalizeScan, createVulnerabilitiesView } from '/vulnerabilities-view.mjs';
+import {PC_RANGES, validPcPayload, mergePcHistory, activatePcCharts} from '/student/pc-status-view.mjs';
+import {validConnectionPayload} from '/student/connection-status-view.mjs';
 
 const STUDENT_MODULE = '/student/extension.mjs';
 const STUDENT_PENDING = '학생 구현 대기';
@@ -9,9 +11,9 @@ const REQUEST_TIMEOUT_MS = 10000;
 const UNVERIFIED_MESSAGE = '서버 응답 형식을 확인할 수 없습니다(확인 불가). 정상으로 간주하지 마세요.';
 
 const MODE_LABELS = {
-  connected: '연결됨',
+  connected: '보안 엔진 연결됨',
   demo: '예제 데이터(demo) · 실제 연결 아님',
-  disconnected: '연결 없음',
+  disconnected: '보안 엔진 미연결',
   unknown: '연결 상태 확인 불가',
 };
 
@@ -76,6 +78,10 @@ let aiConnectionGeneration = 0;
 let explanationGeneration = 0;
 let studentView = null;
 let studentLoadFailed = false;
+let pcState = {status: 'idle', data: null, error: null, rangeMinutes: 5, recording: false, paused: false};
+let pcSequence = 0, pcTimer = null, pcController = null, pcHistoryLoaded = false;
+let connectionReadState = {status: 'idle', data: null, error: null};
+let connectionSequence = 0, connectionReadController = null;
 // Confirmation is private to this module: never sent to DOM, student hooks,
 // storage, URLs, diagnostics or logs. One current intent, no automatic retries.
 let actionGeneration = 0;
@@ -241,11 +247,11 @@ function localFailure(code, message, meta = { mode: 'disconnected', checkedAt: n
 
 const UNKNOWN_META = { mode: 'unknown', checkedAt: null };
 
-// 모든 요청은 10초 뒤 중단된다. signal로 호출자가 취소할 수 있으며, 응답이 없어도 화면이 잠기지 않는다.
+// 기본 요청은 10초, Windows 연결 조회는 30초 뒤 중단한다. 화면 이탈 시에도 취소할 수 있다.
 async function request(path, { method = 'GET', body, signal } = {}) {
   const controller = new AbortController();
   let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, path === '/api/connection-status/read' ? 30000 : REQUEST_TIMEOUT_MS);
   const onAbort = () => controller.abort();
   if (signal) {
     if (signal.aborted) controller.abort();
@@ -372,6 +378,7 @@ function trackError(key, resource) {
   else state.errors.delete(key);
   renderErrors();
   renderStudent('status');
+  renderStudent('overview');
 }
 
 // 현재 세대에서 끝난 응답의 mode가 모두 같을 때만 그 mode를 표시한다. 섞이거나 없으면 확인 불가.
@@ -400,16 +407,29 @@ function renderErrors() {
     box.replaceChildren();
     return;
   }
+  // Keep every original error available without repeating the same failure above each page.
+  const expanded = box.querySelector('details')?.open === true;
+  const groups = new Set([...state.errors].map(([key, message]) => `${state[key]?.error?.code || 'UNVERIFIED'}:${message}`));
+  const sameFailure = groups.size === 1;
+  box.dataset.kind = sameFailure && [...state.errors.keys()].every(key => state[key]?.error?.code === 'ENGINE_NOT_CONNECTED') ? 'connection' : 'error';
+  const summary = el('p', { className: 'connection-summary', text: sameFailure
+    ? `${state.errors.size}개 항목 조회 불가 · ${[...state.errors.values()][0]}`
+    : `${state.errors.size}개 항목의 조회를 완료하지 못했습니다. 상세 사유를 확인하세요.` });
   const items = [...state.errors].map(([key, message]) =>
     el('li', {}, [el('strong', { text: `${RESOURCE_LABELS[key] || key}: ` }), message]),
   );
-  setChildren(box, el('ul', {}, items));
+  const details = el('details', { className: 'connection-details' }, [
+    el('summary', { text: '항목별 오류 상세 보기' }), el('ul', {}, items),
+  ]);
+  details.open = expanded;
+  setChildren(box, summary, el('p', {className: 'muted', text: '내 PC 실측은 보안 엔진 연결과 별도로 확인합니다.'}), details);
   box.hidden = false;
 }
 
 // ---------- 메뉴 ----------
 
 function selectView(view, { focus = false } = {}) {
+  const previousView = state.view;
   state.view = view;
   for (const tab of document.querySelectorAll('#nav [role="tab"]')) {
     const selected = tab.dataset.view === view;
@@ -418,6 +438,10 @@ function selectView(view, { focus = false } = {}) {
     if (selected && focus) tab.focus();
     $(tab.getAttribute('aria-controls')).hidden = !selected;
   }
+  syncPcPolling();
+  if (!['protection','connections'].includes(view)) cancelConnectionRead();
+  else if (previousView !== view) updateConnectionStatus();
+  if (view === 'protection') renderStudent('overview');
 }
 
 function setupNav() {
@@ -1178,6 +1202,10 @@ function snapshot(resource) {
 
 // identity의 세 자료는 같은 세대의 응답만 담긴다(다시 불러오기 시 셋 모두 loading으로 초기화).
 function studentData(kind) {
+  if (kind === 'overview') return {identity: snapshot(state.me), events: snapshot(state.events),
+    sdp: connectionReadState.data?.sdp, sdpCurrent: connectionReadState.status === 'ok', pcStatus: pcState, connectionStatus: connectionReadState};
+  if (kind === 'connectionStatus') return connectionReadState;
+  if (kind === 'pcStatus') return pcState;
   if(kind==='action')return structuredClone(actionState);
   if (kind === 'aiConnection') return { ...snapshot(state.aiConnection), checkedAt: state.aiConnection.meta?.checkedAt ?? null, explanationAccepted: false };
   if (kind === 'explanation') return structuredClone({ event: state.selectedExplanation.event, explanation: snapshot(state.selectedExplanation.resource), checkedAt: state.selectedExplanation.resource.meta?.checkedAt ?? null });
@@ -1204,6 +1232,9 @@ function studentData(kind) {
 }
 
 const STUDENT_SLOTS = {
+  overview: { slot: 'student-overview', fn: 'renderOverview' },
+  connectionStatus: { slot: 'student-connection', fn: 'renderConnectionStatus' },
+  pcStatus: { slot: 'student-pc', fn: 'renderPcStatus' },
   identity: { slot: 'student-identity', fn: 'renderIdentity' },
   decision: { slot: 'student-decision', fn: 'renderDecision' },
   events: { slot: 'student-events', fn: 'renderEvents' },
@@ -1214,9 +1245,51 @@ const STUDENT_SLOTS = {
   action: { slot: 'student-action', fn: 'renderAction' },
 };
 
+// Stable controls keep keyboard focus during asynchronous redraws. aria-disabled blocks duplicate actions.
+const chartDisposers = new Map();
+function syncReadControl(buttonId, statusId, target, busy, message) {
+  const button = $(buttonId), status = $(statusId);
+  button.disabled = false;
+  button.setAttribute('aria-disabled', String(busy));
+  button.textContent = busy ? '새로 읽는 중…' : '다시 조회';
+  target.setAttribute('aria-busy', String(busy));
+  if (status.textContent !== message) status.textContent = message;
+}
+function securityReadBusy() {
+  return ['me','apps','events','devices','sessions'].some(key => state[key].status === 'loading');
+}
+function overviewReadBusy() {
+  return securityReadBusy() || connectionReadState.status === 'loading' || pcState.manualPending === true;
+}
+async function refreshOverview() {
+  if (overviewReadBusy()) return;
+  await Promise.all([loadAll(), updatePcStatus({manual: true}), updateConnectionStatus()]);
+}
 function renderStudent(kind) {
   const { slot, fn } = STUDENT_SLOTS[kind];
   const target = $(slot);
+  if (kind === 'overview') {
+    syncReadControl('overview-refresh', 'overview-query-status', target, overviewReadBusy(), overviewReadBusy()
+      ? '새로 읽는 중… PC·Windows·보안 연결 자료를 각각 확인합니다. Windows 조회는 최대 30초가 걸릴 수 있습니다.'
+      : 'PC는 5초 갱신 · Windows는 화면 진입/수동 조회 · 항목별 출처·시각과 실패 이유를 확인하세요.');
+    if ($('overview-range').value !== String(pcState.rangeMinutes)) $('overview-range').value = String(pcState.rangeMinutes);
+  }
+  if (kind === 'connectionStatus') {
+    syncReadControl('connection-read', 'connection-query-status', target, connectionReadState.status === 'loading',
+      connectionReadState.status === 'loading' ? '새로 읽는 중… 네트워크·방화벽·Windows 기록을 확인합니다. 최대 30초가 걸릴 수 있습니다.'
+        : connectionReadState.status === 'error' ? '연결과 기록 조회 실패. 아래에서 실패한 항목과 다음 할 일을 확인하세요.'
+        : connectionReadState.status === 'ok' ? '조회 응답 확인 · ' + formatTime(connectionReadState.data.checkedAt) + ' · 항목별 성공/실패는 아래 결과를 확인하세요.' : '연결과 기록 화면에 들어가면 한 번 조회합니다.');
+  }
+  if (kind === 'pcStatus') {
+    syncReadControl('pc-sample', 'pc-query-status', target, pcState.status === 'loading',
+      pcState.manualPending || pcState.status === 'loading' && !pcState.data ? '새로 읽는 중… CPU·메모리·C:와 기록을 확인합니다.'
+        : pcState.status === 'error' ? 'PC 상태 조회 실패. 아래에서 실패한 항목과 다음 할 일을 확인하세요.'
+        : pcState.lastManualAt ? '다시 조회 응답 확인 · 측정 시각 ' + formatTime(pcState.lastManualAt)
+        : '자동 측정은 이 화면이 보일 때만 5초 간격으로 실행됩니다.');
+    if ($('pc-range').value !== String(pcState.rangeMinutes)) $('pc-range').value = String(pcState.rangeMinutes);
+  }
+  // Keep a hidden page's last DOM until it is entered; sampling still updates the shared measured state.
+  if ((kind === 'overview' && state.view !== 'protection' || kind === 'pcStatus' && state.view !== 'pc') && target.firstChild) return;
   if (studentLoadFailed) {
     return setChildren(target, stateBox('empty', `${STUDENT_PENDING} (student/extension.mjs를 불러오지 못했습니다)`));
   }
@@ -1228,10 +1301,115 @@ function renderStudent(kind) {
     return setChildren(target, stateBox('error', `학생 구현 ${fn} 실행 중 오류가 발생했습니다. 제공 UI는 계속 동작합니다.`));
   }
   // 학생 반환은 DOM 요소 또는 텍스트만 허용한다. 문자열은 HTML로 해석하지 않는다.
-  if (output instanceof Element) return setChildren(target, output);
+  if (output instanceof Element) {
+    const active = document.activeElement;
+    const focusKey = active && target.contains(active) ? active.getAttribute('data-focus-key') : null;
+    const expanded = new Map([...target.querySelectorAll('details[data-preserve-key]')].map(node => [node.getAttribute('data-preserve-key'), node.open]));
+    for (const node of output.querySelectorAll('details[data-preserve-key]')) if (expanded.has(node.getAttribute('data-preserve-key'))) node.open = expanded.get(node.getAttribute('data-preserve-key'));
+    chartDisposers.get(kind)?.(); chartDisposers.delete(kind);
+    setChildren(target, output);
+    if (kind === 'pcStatus' || kind === 'overview') chartDisposers.set(kind, activatePcCharts(target));
+    if (focusKey) {
+      const replacement = [...target.querySelectorAll('[data-focus-key]')].find(node => node.getAttribute('data-focus-key') === focusKey);
+      replacement?.focus({preventScroll: true});
+    }
+    return;
+  }
   if (typeof output === 'string') return setChildren(target, el('p', { className: 'student-text', text: output }));
   if (output == null) return setChildren(target, stateBox('empty', STUDENT_PENDING));
   setChildren(target, stateBox('error', `학생 구현 ${fn}의 반환 형식이 DOM 요소 또는 텍스트가 아닙니다.`));
+}
+
+// Connection observations: one request per entry or explicit refresh, no timer or automatic retry.
+function cancelConnectionRead() {
+  ++connectionSequence;
+  connectionReadController?.abort(); connectionReadController = null;
+  if (connectionReadState.status === 'loading') {
+    connectionReadState = {...connectionReadState, status: 'error', error: {message: '화면을 떠나 조회를 취소했습니다. 다시 진입하거나 수동으로 조회하세요.'}};
+    renderStudent('connectionStatus');
+    renderStudent('overview');
+  }
+}
+async function updateConnectionStatus() {
+  if (!['protection','connections'].includes(state.view)) return;
+  cancelConnectionRead();
+  const gen = connectionSequence, controller = new AbortController(); connectionReadController = controller;
+  connectionReadState = {...connectionReadState, status: 'loading', error: null}; renderStudent('connectionStatus');
+  renderStudent('overview');
+  const result = await request('/api/connection-status/read', {method: 'POST', body: {}, signal: controller.signal});
+  if (gen !== connectionSequence || controller.signal.aborted || !['protection','connections'].includes(state.view)) return;
+  connectionReadController = null;
+  if (result.ok && validConnectionPayload(result.data)) connectionReadState = {status: 'ok', data: result.data, error: null};
+  else connectionReadState = {...connectionReadState, status: 'error', error: {message: result.error?.message || '조회 결과를 확인할 수 없습니다. 자동으로 다시 조회하지 않습니다.'}};
+  renderStudent('connectionStatus');
+  renderStudent('overview');
+}
+
+// PC-only polling. Hidden tabs do not collect; failed requests require a manual retry.
+function pcActive() {
+  return ['protection','pc'].includes(state.view) && document.visibilityState !== 'hidden';
+}
+function stopPcPolling() {
+  ++pcSequence;
+  clearTimeout(pcTimer); pcTimer = null;
+  pcController?.abort(); pcController = null;
+  pcState.recording = false;
+  pcState.manualPending = false;
+  if (pcState.status === 'loading') pcState.status = pcState.data ? 'ok' : 'idle';
+}
+function syncPcPolling() {
+  stopPcPolling();
+  if (pcActive() && !pcState.paused) {
+    pcHistoryLoaded = false;
+    updatePcStatus();
+  } else {renderStudent('pcStatus'); renderStudent('overview');}
+}
+async function updatePcStatus({manual = false} = {}) {
+  if (!pcActive() || pcState.paused && !manual) return;
+  stopPcPolling();
+  if (manual) pcState.paused = false;
+  const seq = pcSequence, started = performance.now(), controller = new AbortController();
+  pcController = controller;
+  const current = () => seq === pcSequence && !controller.signal.aborted && pcActive();
+  pcState.status = 'loading'; pcState.error = null; pcState.recording = true;
+  pcState.manualPending = manual;
+  renderStudent('pcStatus');
+  renderStudent('overview');
+  try {
+    if (!pcHistoryLoaded) {
+      const restored = await request('/api/pc-status', {signal: controller.signal});
+      if (!current()) return;
+      if (!restored.ok || !validPcPayload(restored.data, true)) throw Error('PC_HISTORY_UNAVAILABLE');
+      pcState.data = {...restored.data, history: mergePcHistory(restored.data.history, null)};
+      pcHistoryLoaded = true;
+    }
+    const measured = await request('/api/pc-status/sample', {method: 'POST', body: {}, signal: controller.signal});
+    if (!current()) return;
+    if (!measured.ok || !validPcPayload(measured.data) || !measured.data.latest) throw Error('PC_SAMPLE_UNAVAILABLE');
+    pcState.data = {...measured.data, history: mergePcHistory(pcState.data?.history ?? [], measured.data.latest)};
+    pcState.status = 'ok';
+    if (manual) pcState.lastManualAt = measured.data.latest.measuredAt;
+  } catch (error) {
+    if (!current()) return;
+    pcState.status = 'error'; pcState.paused = true; pcState.recording = false;
+    pcHistoryLoaded = false;
+    pcState.error = {stage: error.message === 'PC_HISTORY_UNAVAILABLE' ? 'history' : 'sample', message: error.message === 'PC_HISTORY_UNAVAILABLE'
+      ? '최근 PC 기록을 복원하지 못했습니다. 앱 서버와 기록 보관 상태를 확인하세요.' : 'CPU·메모리·C: 실측 응답을 확인하지 못했습니다. 앱 서버 실행 상태를 확인하세요.'};
+  } finally {
+    if (current()) {
+      pcState.manualPending = false;
+      pcController = null;
+      renderStudent('pcStatus');
+      renderStudent('overview');
+      if (!pcState.paused) {
+        const nextSampleAt = Date.parse(pcState.data?.nextSampleAt);
+        // The server includes the CPU sampling duration in its next eligible time.
+        // A small arrival margin avoids a just-too-early request reusing the previous sample.
+        const waitMs = Number.isFinite(nextSampleAt) ? nextSampleAt - Date.now() + 50 : 5000 - (performance.now() - started);
+        pcTimer = setTimeout(() => updatePcStatus(), Math.max(250, waitMs));
+      }
+    }
+  }
 }
 
 function renderAllStudent() {
@@ -1251,7 +1429,8 @@ async function loadStudentModule() {
   try {
     const mod = await import(STUDENT_MODULE);
     if (typeof mod.createStudentView !== 'function') throw new Error('missing export');
-    studentView = mod.createStudentView({ api: studentApi, onChange: () => renderAllStudent() }) || null;
+    studentView = mod.createStudentView({ api: studentApi, onChange: () => renderAllStudent(), capabilities: {overviewSlot: true},
+      actions: Object.freeze({openPc: () => selectView('pc', {focus: true}), openConnections: () => selectView('connections', {focus: true}), openRecords: () => selectView('records', {focus: true})}) }) || null;
   } catch {
     studentView = null;
     studentLoadFailed = true;
@@ -1330,7 +1509,28 @@ async function loadAll() {
 
 function init() {
   setupNav();
-  $('refresh').addEventListener('click', () => loadAll());
+  $('overview-refresh').addEventListener('click', refreshOverview);
+  $('overview-range').addEventListener('change', event => {
+    const minutes = Number(event.target.value);
+    if (PC_RANGES.includes(minutes)) {pcState.rangeMinutes = minutes; renderStudent('overview');}
+  });
+  $('connection-read').addEventListener('click', () => {if (connectionReadState.status !== 'loading') updateConnectionStatus();});
+  window.addEventListener('pagehide', cancelConnectionRead);
+  $('view-pc').addEventListener('click', event => {
+    if (event.target.closest('[data-pc-action="sample"]') && pcState.status !== 'loading') updatePcStatus({manual: true});
+  });
+  $('view-pc').addEventListener('change', event => {
+    if (!event.target.matches('[data-pc-range]')) return;
+    const minutes = Number(event.target.value);
+    if (PC_RANGES.includes(minutes)) {
+      pcState.rangeMinutes = minutes;
+      renderStudent('pcStatus');
+    }
+  });
+  document.addEventListener('visibilitychange', syncPcPolling);
+  window.addEventListener('pagehide', stopPcPolling);
+  window.addEventListener('pageshow', syncPcPolling);
+  $('refresh').addEventListener('click', () => {if (state.view === 'protection') refreshOverview(); else {loadAll(); if (state.view === 'connections') updateConnectionStatus();}});
   $('diag-load').addEventListener('click', () => loadDiagnostics());
   $('diag-copy').addEventListener('click', () => copyDiagnostics());
   $('vulnerabilities-load').addEventListener('click', () => loadVulnerabilities());
@@ -1363,6 +1563,8 @@ function init() {
   renderAllStudent();
   loadStudentModule();
   loadAll();
+  syncPcPolling();
+  updateConnectionStatus();
 }
 
 init();

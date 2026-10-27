@@ -16,6 +16,8 @@ import {prepareLearnerSupportRequest} from './ai/learner-support-contract.mjs';
 import {createVaultOnAiService} from './ai/vault-service.mjs';
 import {createConnectionManager} from './connection/manager.mjs';
 import {createProjectScanner} from './vulnerabilities/project-scan.mjs';
+import {createPcStatusService} from './pc-status.mjs';
+import {readConnectionStatus} from './connection-status.mjs';
 import {buildLocalLearnerSupportGuide,isLearnerSupportProblemKind,readLocalLearnerSupportObservation} from './learner-support/service.mjs';
 import {nativeOwn,nativePublicError} from './connection/native-login.mjs';
 import {createNativeHostContext,captureNativeHostConfiguration,readNativeHostConfiguration,openNativeHostOperation,readNativeHostOperation,assertNativeHostOperation,createNativeOperationVault,closeNativeHostOperation} from './connection/native-context.mjs';
@@ -25,6 +27,8 @@ const id=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.te
 const record=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const text=value=>typeof value==='string'&&value.length<=2000;
 const files=new Map([['/','public/index.html'],['/index.html','public/index.html'],['/app.js','public/app.js'],['/style.css','public/style.css'],['/vulnerabilities-view.mjs','public/vulnerabilities-view.mjs'],['/student/extension.mjs','student/extension.mjs'],
+  ['/student/pc-status-view.mjs','student/pc-status-view.mjs'],
+  ['/student/connection-status-view.mjs','student/connection-status-view.mjs'],
   ['/ai-connect.mjs','public/ai-connect.mjs'],
   ...['alekov-ai-explain','alekov-app-icon','alekov-connect-approval','alekov-connection-unknown','alekov-empty-records'].map(name=>[`/assets/alekov/${name}.webp`,`public/assets/alekov/${name}.webp`])]);
 const connectionRoutes=new Map(['start','finish','status','cancel'].map(kind=>[`/api/ai/connect/${kind}`,kind]));
@@ -206,7 +210,7 @@ export function createOnServer(serverOptions={}) {
     nativeConfiguration=captureNativeHostConfiguration(nativeDescriptor.value);}
   else for(let p=Object.getPrototypeOf(serverOptions);p;p=Object.getPrototypeOf(p)){if(types.isProxy(p)||Object.getOwnPropertyDescriptor(p,'nativeHostConfiguration'))throw Error('INVALID_SERVER_AI_CONFIGURATION');}
   const {engine={evidenceMode:'disconnected'},actionConfiguration:givenActionConfiguration,sdpActionStartup,ai,resolveAiIdentity,readLearnerSupportIdentity,aiEnv=process.env,appCredentialVault,vaultAiConfiguration,aiConnectionConfiguration,allowLoopbackAiHttp=false,aiTimeoutMs=10000,
-    scanner=createProjectScanner(),assetsRoot=root,clock=()=>new Date(),readTimeoutMs=10000,requestTimeoutMs=15000}=serverOptions;
+    scanner=createProjectScanner(),pcStatusService,connectionStatusReader=readConnectionStatus,assetsRoot=root,clock=()=>new Date(),readTimeoutMs=10000,requestTimeoutMs=15000}=serverOptions;
   if(nativeConfiguration&&(ai!==undefined||resolveAiIdentity!==undefined||readLearnerSupportIdentity!==undefined||appCredentialVault!==undefined||vaultAiConfiguration!==undefined||aiConnectionConfiguration!==undefined||typeof aiEnv.ON_AI_APP_KEY==='string'&&aiEnv.ON_AI_APP_KEY))throw Error('INVALID_SERVER_AI_CONFIGURATION');
   const nativeHost=nativeConfiguration?createNativeHostContext(nativeConfiguration):null;
   // c2(#978): host 가 sdpActionStartup({databasePath, policy})을 주면, 이 서버가 만든 SDP host engine 과 genuine native host 를
@@ -310,6 +314,7 @@ export function createOnServer(serverOptions={}) {
       if(!request.actionContext)request.actionContext=Object.freeze(structuredClone(snapshot));
       return snapshot;
     }:undefined});
+  let pcStatus;
   const meta=()=>({mode,checkedAt:clock().toISOString(),starterVersion:'0.1.0'});
   const server=http.createServer(async(req,res)=>{
     // Register before identity/events reads: disconnects during preparation must
@@ -322,7 +327,7 @@ export function createOnServer(serverOptions={}) {
     let supportDeadline;
     const disconnect=()=>lifetime.abort();
     res.once('close',disconnect);req.once('aborted',disconnect);
-    const requestTimer=setTimeout(()=>{requestTimedOut=true;lifetime.abort();},requestTimeoutMs);
+    const requestTimer=setTimeout(()=>{requestTimedOut=true;lifetime.abort();},req.url==='/api/connection-status/read'?Math.max(requestTimeoutMs,30000):requestTimeoutMs);
     function assertAlive(){if(supportDeadline&&(Date.now()>=supportDeadline.wall||performance.now()>=supportDeadline.monotonic)){requestTimedOut=true;lifetime.abort();}if(requestTimedOut)throw engineError('REQUEST_TIMEOUT','');if(lifetime.signal.aborted||res.destroyed)throw engineError('REQUEST_CANCELLED','');}
     async function bounded(work){
       assertAlive();let cancel;
@@ -359,6 +364,39 @@ export function createOnServer(serverOptions={}) {
       if(url.search)throw engineError('QUERY_REJECTED','지원하지 않는 요청입니다.',400);
       if(url.pathname.startsWith('/api/')&&req.headers['sec-fetch-site']==='cross-site')throw engineError('ORIGIN_REJECTED','');
       if(req.method==='POST'&&req.headers.origin!==`http://${host}`)throw engineError('ORIGIN_REJECTED','앱 화면에서 다시 요청하세요.',403);
+      if(url.pathname==='/api/connection-status/read'){
+        if(req.method!=='POST'){send(405,{ok:false,error:{code:'METHOD_NOT_ALLOWED',message:'지원하지 않는 요청 방식입니다.',retryable:false}});return;}
+        await bounded(()=>jsonBody(req,[]));
+        const readSdp=async()=>{
+          const base={checkedAt:clock().toISOString(),source:'기존 SDP 호스트의 현재 세션 조회'};
+          if(mode==='disconnected'||mode==='demo')return {...base,status:'disconnected',code:mode==='demo'?'DEMO_ONLY':'SDP_NOT_CONNECTED',reason:mode==='demo'?'예제 보안 자료는 실제 SDP 연결이 아닙니다.':'실제 SDP 서버 연결이 설정되지 않았습니다.'};
+          if(!sdpHostEngine||engine.projectId!==sdpHostEngine.projectId)return {...base,status:'unavailable',code:'SDP_UNVERIFIED',reason:'현재 어댑터에서 실제 SDP 연결을 검증할 수 없습니다.'};
+          try{
+            const identity=assertData('identity',await bounded(signal=>sdpHostEngine.readIdentity({signal:AbortSignal.any([signal,AbortSignal.timeout(5000)])})));
+            if(identity.session.status!=='active')throw Error('SDP_UNVERIFIED');
+            return {...base,checkedAt:clock().toISOString(),status:'connected'};
+          }catch{return {...base,checkedAt:clock().toISOString(),status:'unavailable',code:'SDP_UNVERIFIED',reason:'현재 SDP 세션을 실제로 확인하지 못했습니다. PC 조회 성공은 SDP 연결의 근거가 아닙니다.'};}
+        };
+        const [data,sdp]=await Promise.all([bounded(signal=>connectionStatusReader({signal})),readSdp()]);
+        send(200,{ok:true,data:{...data,sdp}});return;
+      }
+      // Local measurements stay independent of the security engine's mode.
+      // Browser input cannot select a filesystem path, drive or retention policy.
+      if(url.pathname==='/api/pc-status'||url.pathname==='/api/pc-status/sample'){
+        const sampling=url.pathname.endsWith('/sample');
+        if(req.method!==(sampling?'POST':'GET')){
+          send(405,{ok:false,error:{code:'METHOD_NOT_ALLOWED',message:'지원하지 않는 요청 방식입니다.',retryable:false}});return;
+        }
+        if(sampling)await bounded(()=>jsonBody(req,[]));
+        try{
+          pcStatus??=pcStatusService??createPcStatusService();
+          const data=await bounded(()=>sampling?pcStatus.sample():pcStatus.history());
+          send(200,{ok:true,data});
+        }catch{
+          send(503,{ok:false,error:{code:'PC_STATUS_UNAVAILABLE',message:'PC 상태를 조회하지 못했습니다. 잠시 후 지금 측정을 눌러 확인하세요.',retryable:false}});
+        }
+        return;
+      }
       if(url.pathname.startsWith('/api/native-login/')){
         const kind=url.pathname.slice('/api/native-login/'.length);
         if(req.method!=='POST'||!['start','status','redeem','current','cancel'].includes(kind)){send(404,{ok:false,error:{code:'NOT_FOUND',message:'지원하지 않는 주소입니다.',retryable:false}});return;}

@@ -1,6 +1,59 @@
 // 이 파일은 학생이 같은 프로젝트에서 이어서 구현합니다.
 // 제공 UI를 받은 것만으로 단계 완료를 인정하지 않습니다.
-export function createStudentView() {
+import {renderPcStatusView} from './pc-status-view.mjs';
+import {renderConnectionStatusView, renderWindowsEventSummary} from './connection-status-view.mjs';
+export function createStudentView({actions = {}, capabilities = {}} = {}) {
+  // Only named host callbacks are used. No new URL, POST API or security-setting access is exposed.
+  const overview = ({identity, events, sdp, sdpCurrent = false, pcStatus, connectionStatus} = {}) => {
+    const el = (tag, value, cls) => {const node = document.createElement(tag); if (value !== undefined) node.textContent = value; if (cls) node.className = cls; return node;};
+    const root = el('div', undefined, 'defense-overview');
+    root.appendChild(el('p', '방어 목표별 연결·검증 상태 · 미확인은 방어 성공이 아닙니다.', 'overview-note'));
+    const grid = el('div', undefined, 'defense-grid');
+    const demo = identity?.mode === 'demo' || events?.mode === 'demo';
+    const sdpAge = sdp && Date.now() - Date.parse(sdp.checkedAt);
+    const freshSdp = sdpCurrent && sdp && Number.isFinite(sdpAge) && sdpAge >= 0 && sdpAge <= 60000;
+    const sessionState = demo ? '예제 · 실제 연결 아님'
+      : freshSdp && sdp.status === 'connected' ? 'SDP 세션 확인됨 · 차단 효과 미확인'
+      : freshSdp && sdp.status === 'disconnected' ? 'SDP 미연결'
+      : identity?.mode === 'disconnected' ? '보안 엔진 미연결' : '현재 접근 통제 확인 불가';
+    const rows = [
+      ['01', '제로트러스트 접근 통제', sessionState,
+        '계정·기기·세션을 근거로 접근을 확인하는 목표입니다. 세션 조회와 실제 정책 집행 효과는 별도로 검증합니다.',
+        '다음 할 일: 연결과 기록에서 SDP 상태를 확인하고, 업무 앱에서 실제 접속 판정을 확인하세요.'],
+      ['02', 'DDoS·API 남용 대응', '방어 효과 미확인',
+        '트래픽 제한·앞단 방어 연결·차단 효과를 확인할 자료가 아직 없습니다. CPU 사용률을 DDoS 탐지 결과로 해석하지 않습니다.',
+        '다음 할 일: 보호할 서비스의 트래픽 관측과 방어 연결을 준비해야 합니다.'],
+      ['03', '계정 악용·자료 유출 대응', demo ? '예제 기록 · 실제 대응 아님' : events?.status === 'ok' ? '보안 기록 조회됨 · 대응 효과 미확인' : '보안 기록·대응 연결 확인 불가',
+        '실제 보안 사건과 대응 근거를 확인하는 목표입니다. Windows 경고·오류 건수는 침해 판정이 아닙니다.',
+        '다음 할 일: 보안 기록에서 원천 사건·근거·지원 조치를 확인하세요.'],
+    ];
+    for (const [order, title, state, description, next] of rows) {
+      const card = el('section', undefined, 'card defense-card');
+      card.appendChild(el('p', order + ' · 방어 목표', 'defense-order'));
+      card.appendChild(el('h3', title)); card.appendChild(el('p', state, 'defense-state'));
+      const details = el('details', undefined, 'defense-detail'); details.setAttribute('data-preserve-key', 'defense-' + order);
+      const summary = el('summary', '근거와 다음 할 일'); summary.setAttribute('data-focus-key', 'defense-' + order); details.appendChild(summary);
+      details.appendChild(el('p', description, 'defense-description')); details.appendChild(el('p', next, 'defense-next')); card.appendChild(details);
+      grid.appendChild(card);
+    }
+    root.appendChild(grid);
+    if (freshSdp) root.appendChild(el('p', 'SDP 연결 근거 조회 시각: ' + new Intl.DateTimeFormat('ko-KR', {timeZone: 'Asia/Seoul', hour12: false,
+      month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'}).format(new Date(sdp.checkedAt)) + ' KST · 조회 당시 상태', 'overview-note'));
+    const links = el('div', undefined, 'row overview-links');
+    for (const [key, label] of [['openPc', 'PC 상태 보기'], ['openConnections', '연결과 기록 보기'], ['openRecords', '보안 기록 보기']]) {
+      const button = el('button', label, 'btn'); button.setAttribute('type', 'button'); button.setAttribute('data-focus-key', key);
+      if (typeof actions[key] === 'function') button.addEventListener('click', () => actions[key]());
+      else {button.disabled = true; button.setAttribute('title', '이 실행 환경은 학생 바로가기 연결을 지원하지 않습니다. 제공 메뉴를 사용하세요.');}
+      links.appendChild(button);
+    }
+    if (pcStatus || connectionStatus) {
+      root.appendChild(el('h3', '실제 PC 관측 정보', 'observation-heading'));
+      root.appendChild(renderPcStatusView({...pcStatus, compact: true, sidePanel: renderWindowsEventSummary(connectionStatus)}));
+    }
+    root.appendChild(links);
+    root.appendChild(el('p', 'PC 상태·네트워크·방화벽·Windows 기록은 관측 근거이며 방어 성공 판정과 구분합니다.', 'overview-note'));
+    return root;
+  };
   // AI 입력은 제공 UI가 가린 값을 받으며, 알 수 없는 원문 오류는 다시 노출하지 않습니다.
   const safeAiText = (text, limit = 500) => typeof text === 'string' && text.trim().length > 0
     && text.length <= limit && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(text)
@@ -44,9 +97,20 @@ export function createStudentView() {
     return { code, message, reason, guidance };
   };
   return {
+    renderOverview(resource) {
+      return overview(resource);
+    },
+    renderConnectionStatus(resource) {
+      return renderConnectionStatusView(resource);
+    },
+    renderPcStatus(resource) {
+      return renderPcStatusView(resource);
+    },
     renderIdentity({ me, devices, sessions }) {
       // 매번 새 DOM을 반환하여 이전 신원의 표시를 재사용하지 않습니다.
       const root = document.createElement('div');
+      // Older hosts still invoke renderIdentity. Keep a truthful summary in that student slot too.
+      if (capabilities.overviewSlot !== true) root.appendChild(overview({identity: me}));
       const deviceLabels = { compliant: '보안 기준 충족', noncompliant: '보안 기준 미충족', unknown: '확인 불가' };
       const sessionLabels = { active: '활성', expired: '만료', revoked: '철회됨', unknown: '확인 불가' };
       const label = (labels, value) => Object.hasOwn(labels, value) ? labels[value] : '확인 불가';

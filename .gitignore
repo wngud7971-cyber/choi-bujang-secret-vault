@@ -8,3 +8,5 @@ node_modules/
 public/aleph.json
 # Local SQL seed contains note bodies; keep it out of Git and public output.
 private/
+# Local PC readings are runtime data, not source or submission artifacts.
+on-client/.local/

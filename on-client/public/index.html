@@ -27,8 +27,11 @@
 
   <div class="layout">
     <nav class="sidebar" aria-label="주 메뉴">
+      <p class="sidebar-caption">모니터링</p>
       <div role="tablist" aria-orientation="vertical" id="nav">
         <button type="button" role="tab" id="tab-protection" data-testid="nav-protection" data-view="protection" aria-controls="view-protection" aria-selected="true" tabindex="0">보호 현황</button>
+        <button type="button" role="tab" id="tab-pc" data-testid="nav-pc" data-view="pc" aria-controls="view-pc" aria-selected="false" tabindex="-1">내 PC 상태</button>
+        <button type="button" role="tab" id="tab-connections" data-testid="nav-connections" data-view="connections" aria-controls="view-connections" aria-selected="false" tabindex="-1">연결과 기록</button>
         <button type="button" role="tab" id="tab-apps" data-testid="nav-apps" data-view="apps" aria-controls="view-apps" aria-selected="false" tabindex="-1">업무 앱</button>
         <button type="button" role="tab" id="tab-records" data-testid="nav-records" data-view="records" aria-controls="view-records" aria-selected="false" tabindex="-1">보안 기록</button>
       </div>
@@ -38,13 +41,31 @@
     <main id="main" tabindex="-1">
       <div id="error-message" class="error-banner" data-testid="error-message" role="alert" hidden></div>
 
-      <p class="notice">
+      <details class="notice implementation-note">
+        <summary>제공 기능 · 직접 구현 구분</summary>
+        <p>
         <strong>제공 공통 UI</strong>와 <strong>학생 구현 표시</strong>(student/extension.mjs)는 구분되어 있습니다.
         제공 코드는 학생 성취로 계산되지 않으며, 예제(demo)·연결 없음 상태는 실제 연결 성공이 아닙니다.
-      </p>
+        </p>
+      </details>
 
       <section id="view-protection" class="view" role="tabpanel" aria-labelledby="tab-protection">
         <h1>보호 현황</h1>
+        <p class="page-description">핵심 방어 목표의 실제 연결 상태를 먼저 확인하고, 아래에서 PC 관측과 보안 기록을 살펴봅니다.</p>
+        <section class="overview-section student" aria-labelledby="overview-title">
+          <div class="pc-page-head">
+            <h2 id="overview-title">핵심 방어 목표 <span class="tag tag-student">직접 구현</span></h2>
+            <div class="row overview-controls">
+              <label for="overview-range">추이 범위
+                <select id="overview-range"><option value="1">최근 1분</option><option value="5" selected>최근 5분</option><option value="15">최근 15분</option><option value="30">최근 30분</option><option value="60">최근 1시간</option><option value="1440">최근 24시간</option></select>
+              </label>
+              <button type="button" id="overview-refresh" class="btn btn-primary" aria-label="PC·Windows·연결과 보안 기록 다시 조회" aria-controls="student-overview" aria-describedby="overview-query-status">다시 조회</button>
+            </div>
+          </div>
+          <p id="overview-query-status" class="query-status" role="status" aria-live="polite" aria-atomic="true"></p>
+          <div id="student-overview" class="student-slot"></div>
+        </section>
+        <h2 class="evidence-heading">조회 근거와 기존 보안 도구</h2>
 
         <div class="grid-2">
           <section class="card provided" aria-labelledby="identity-title">
@@ -56,10 +77,10 @@
             </dl>
           </section>
 
-          <section class="card student" aria-labelledby="student-identity-title">
-            <h2 id="student-identity-title">학생 구현 표시 <span class="tag tag-student">student/extension.mjs · renderIdentity</span></h2>
+          <details class="card student implementation-panel" aria-labelledby="student-identity-title">
+            <summary><h2 id="student-identity-title">계정·기기·세션 상세 <span class="tag tag-student">직접 구현</span></h2></summary>
             <div id="student-identity" class="student-slot" aria-live="polite"></div>
-          </section>
+          </details>
         </div>
 
         <div class="grid-2">
@@ -73,11 +94,13 @@
           </section>
         </div>
 
-        <section class="card student" aria-labelledby="student-status-title">
-          <h2 id="student-status-title">학생 상태·알림 표시 <span class="tag tag-student">student/extension.mjs · renderStatus</span></h2>
+        <details class="card student implementation-panel" aria-labelledby="student-status-title">
+          <summary><h2 id="student-status-title">상태·알림 상세 <span class="tag tag-student">직접 구현</span></h2></summary>
           <div id="student-status" class="student-slot" aria-live="polite"></div>
-        </section>
+        </details>
 
+        <details class="tool-group">
+          <summary>연결 진단 도움정보 <span class="tag">제공</span></summary>
         <section class="card provided" aria-labelledby="diag-title">
           <h2 id="diag-title">도움정보 <span class="tag">제공</span></h2>
           <p class="muted">서버의 비밀 없는 연결 점검 결과를 불러와 직접 확인한 뒤 복사할 수 있습니다. 자동으로 전송하지 않습니다.</p>
@@ -89,6 +112,9 @@
           <pre id="diag-output" class="diag-output" tabindex="0" hidden></pre>
         </section>
 
+        </details>
+        <details class="tool-group">
+          <summary>AI 계정 연결과 응답 점검 <span class="tag">제공 · 직접 구현</span></summary>
         <section class="card provided" aria-labelledby="ai-connect-title" data-testid="ai-connect-card">
           <h2 id="ai-connect-title">AI 연결 <span class="tag">제공 · 17단계 연결 절차</span></h2>
           <div class="connect-layout">
@@ -156,6 +182,9 @@
           <div id="student-ai-connection" class="student-slot" aria-live="polite"></div>
         </section>
 
+        </details>
+        <details class="tool-group">
+          <summary>설치 패키지와 취약점 조회 <span class="tag">제공 · 직접 구현</span></summary>
         <section class="card provided" aria-labelledby="vulnerabilities-title">
           <h2 id="vulnerabilities-title">설치 패키지와 취약점 정보 <span class="tag">제공 · OSV</span></h2>
           <p class="muted">서버에 연결한 프로젝트의 공개 조회 승인 패키지만 정확한 설치 버전으로 대조합니다. 조회 실패와 미조회는 알려진 항목 없음이 아닙니다.</p>
@@ -169,10 +198,51 @@
           <h2 id="student-vulnerabilities-title">학생 패키지 조회 표시 <span class="tag tag-student">student/extension.mjs · renderVulnerabilities</span></h2>
           <div id="student-vulnerabilities" class="student-slot" aria-live="polite"></div>
         </section>
+        </details>
+      </section>
+
+      <section id="view-pc" class="view" role="tabpanel" aria-labelledby="tab-pc" hidden>
+        <div class="pc-page-head">
+          <div>
+            <div class="page-heading"><h1>내 PC 상태</h1><span class="tag tag-student">직접 추가</span></div>
+            <p class="page-description">이 PC 전체 CPU·물리 메모리와 C: 남은 공간을 일반 권한으로 읽습니다. 보호 현황·내 PC 상태 화면에서 5초마다 갱신합니다.</p>
+          </div>
+          <div class="row pc-controls">
+            <label for="pc-range">그래프 범위
+              <select id="pc-range" data-pc-range="true">
+                <option value="1">최근 1분</option>
+                <option value="5" selected>최근 5분</option>
+                <option value="15">최근 15분</option>
+                <option value="30">최근 30분</option>
+                <option value="60">최근 1시간</option>
+                <option value="1440">최근 24시간</option>
+              </select>
+            </label>
+            <button id="pc-sample" type="button" class="btn btn-primary" data-pc-action="sample" aria-label="내 PC 상태 다시 조회" aria-controls="student-pc" aria-describedby="pc-query-status">다시 조회</button>
+          </div>
+        </div>
+        <section class="pc-workspace" aria-labelledby="pc-status-title">
+          <h2 id="pc-status-title" class="sr-only">실제 PC 측정과 비교 · 직접 추가</h2>
+          <p id="pc-query-status" class="query-status" role="status" aria-live="polite" aria-atomic="true"></p>
+          <div id="student-pc" class="student-slot"></div>
+        </section>
+      </section>
+
+      <section id="view-connections" class="view" role="tabpanel" aria-labelledby="tab-connections" hidden>
+        <div class="pc-page-head">
+          <div>
+            <div class="page-heading"><h1>연결과 기록</h1><span class="tag tag-student">직접 추가 · 읽기 전용</span></div>
+            <p class="page-description">네트워크 구성·방화벽 설정·Windows 기록을 일반 권한으로 조회합니다.</p>
+          </div>
+          <button type="button" id="connection-read" class="btn btn-primary" aria-label="연결과 기록 다시 조회" aria-controls="student-connection" aria-describedby="connection-query-status">다시 조회</button>
+        </div>
+        <p id="connection-query-status" class="query-status" role="status" aria-live="polite" aria-atomic="true"></p>
+        <div id="student-connection" class="student-slot"></div>
       </section>
 
       <section id="view-apps" class="view" role="tabpanel" aria-labelledby="tab-apps" hidden>
         <h1>업무 앱</h1>
+        <p class="page-description">업무 앱의 접속 요청과 서버 판정 근거를 확인합니다.</p>
         <div class="grid-2">
           <section class="card provided" aria-labelledby="apps-title">
             <h2 id="apps-title">접속 요청 <span class="tag">제공</span></h2>
@@ -194,6 +264,7 @@
 
       <section id="view-records" class="view" role="tabpanel" aria-labelledby="tab-records" hidden>
         <h1>보안 기록</h1>
+        <p class="page-description">조회된 사건과 근거를 확인하고 필요한 조치를 준비합니다.</p>
         <section class="card provided" aria-labelledby="records-title">
           <h2 id="records-title">접속·XDR 기록 <span class="tag">제공</span></h2>
           <p class="muted">AI 설명은 기록 식별자만 보내며, 실패해도 기록은 그대로 유지됩니다. 조치는 원천 권한 확인과 별도의 사람 확인을 거칩니다.</p>
