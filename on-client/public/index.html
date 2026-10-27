@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko">
+<html lang="ko" data-runtime="local">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -39,6 +39,11 @@
     </nav>
 
     <main id="main" tabindex="-1">
+      <aside id="web-runtime-notice" class="notice" aria-label="웹 실행 범위" hidden>
+        <strong>웹 배포 화면 · PC 실측 미연결</strong>
+        <p>최신 케셰브 화면입니다. 이 웹 화면에는 PC 에이전트가 연결되지 않아 CPU·메모리·디스크·네트워크·방화벽·Windows 기록을 읽지 않습니다. 실측은 이 PC에서 로컬 앱을 실행해 확인하세요. Vercel 서버의 값이나 예제값을 내 PC 실측으로 표시하지 않습니다.</p>
+        <a href="/library/">기존 가상 자료실 열기</a>
+      </aside>
       <div id="error-message" class="error-banner" data-testid="error-message" role="alert" hidden></div>
 
       <details class="notice implementation-note">
@@ -205,7 +210,7 @@
         <div class="pc-page-head">
           <div>
             <div class="page-heading"><h1>내 PC 상태</h1><span class="tag tag-student">직접 추가</span></div>
-            <p class="page-description">이 PC 전체 CPU·물리 메모리와 C: 남은 공간을 일반 권한으로 읽습니다. 보호 현황·내 PC 상태 화면에서 5초마다 갱신합니다.</p>
+            <p id="pc-description" class="page-description">이 PC 전체 CPU·물리 메모리와 C: 남은 공간을 일반 권한으로 읽습니다. 보호 현황·내 PC 상태 화면에서 5초마다 갱신합니다.</p>
           </div>
           <div class="row pc-controls">
             <label for="pc-range">그래프 범위
@@ -232,7 +237,7 @@
         <div class="pc-page-head">
           <div>
             <div class="page-heading"><h1>연결과 기록</h1><span class="tag tag-student">직접 추가 · 읽기 전용</span></div>
-            <p class="page-description">네트워크 구성·방화벽 설정·Windows 기록을 일반 권한으로 조회합니다.</p>
+            <p id="connection-description" class="page-description">네트워크 구성·방화벽 설정·Windows 기록을 일반 권한으로 조회합니다.</p>
           </div>
           <button type="button" id="connection-read" class="btn btn-primary" aria-label="연결과 기록 다시 조회" aria-controls="student-connection" aria-describedby="connection-query-status">다시 조회</button>
         </div>

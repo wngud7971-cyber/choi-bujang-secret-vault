@@ -78,7 +78,8 @@ let aiConnectionGeneration = 0;
 let explanationGeneration = 0;
 let studentView = null;
 let studentLoadFailed = false;
-let pcState = {status: 'idle', data: null, error: null, rangeMinutes: 5, recording: false, paused: false};
+let pcState = {status: 'idle', data: null, error: null, rangeMinutes: 5, recording: false, paused: false,
+  environment: document.documentElement?.dataset?.runtime === 'web' ? 'web' : 'local'};
 let pcSequence = 0, pcTimer = null, pcController = null, pcHistoryLoaded = false;
 let connectionReadState = {status: 'idle', data: null, error: null};
 let connectionSequence = 0, connectionReadController = null;
@@ -249,6 +250,10 @@ const UNKNOWN_META = { mode: 'unknown', checkedAt: null };
 
 // 기본 요청은 10초, Windows 연결 조회는 30초 뒤 중단한다. 화면 이탈 시에도 취소할 수 있다.
 async function request(path, { method = 'GET', body, signal } = {}) {
+  // Cloud pages must not query the older library APIs, localhost, or a cloud OS as the user's PC.
+  if (document.documentElement?.dataset?.runtime === 'web') {
+    return localFailure('LOCAL_AGENT_NOT_CONNECTED', '웹 배포 화면에 PC 에이전트가 연결되지 않았습니다. 이 PC의 로컬 앱에서 실제 값을 확인하세요.', UNKNOWN_META);
+  }
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; controller.abort(); }, path === '/api/connection-status/read' ? 30000 : REQUEST_TIMEOUT_MS);
@@ -395,7 +400,7 @@ function renderMode() {
   const badge = $('mode-badge');
   const mode = currentMode();
   badge.dataset.mode = mode;
-  badge.textContent = MODE_LABELS[mode];
+  badge.textContent = document.documentElement?.dataset?.runtime === 'web' ? '웹 배포 · PC 실측 미연결' : MODE_LABELS[mode];
   $('checked-at').textContent = state.checkedAt ? `확인 시각 ${formatTime(state.checkedAt)}` : '';
   renderStudent('status');
 }
@@ -557,7 +562,8 @@ function renderAiConnect() {
   // 초록 확인 표시가 있는 승인 그림은 실제 connected 결과에서만 보인다.
   $('ai-connect-art-connected').hidden = s.phase !== 'connected' || $('ai-connect-art-connected').dataset.broken === 'true';
   $('ai-connect-art-unknown').hidden = !['unknown', 'error'].includes(s.phase) || $('ai-connect-art-unknown').dataset.broken === 'true';
-  const message = aiConnectModule ? aiConnectModule.connectMessage(s)
+  const message = document.documentElement?.dataset?.runtime === 'web' ? '웹 배포에는 계정·AI 연결용 로컬 호스트가 없습니다. 연결은 이 PC의 로컬 앱에서 진행하세요.'
+    : aiConnectModule ? aiConnectModule.connectMessage(s)
     : aiConnectLoadFailed ? '이 앱 버전에는 아직 AI 연결 화면이 연결되지 않았습니다(미연결). 기존 설명·판정·기록은 그대로 쓸 수 있습니다.' : 'AI 연결 화면을 준비하는 중…';
   const kind = s.phase === 'connected' ? 'ok' : ['error', 'unknown'].includes(s.phase) ? 'error' : ['idle', 'cancelled'].includes(s.phase) ? 'empty' : 'loading';
   setChildren(target,
@@ -606,7 +612,8 @@ function renderNativeLogin() {
     open.removeAttribute('href');
     open.hidden = true;
   }
-  const message = view ? view.message
+  const message = document.documentElement?.dataset?.runtime === 'web' ? '웹 배포에는 계정 연결용 로컬 호스트가 없습니다. 계정 연결은 이 PC의 로컬 앱에서 진행하세요.'
+    : view ? view.message
     : aiConnectLoadFailed ? '이 앱 버전에는 아직 계정 연결 화면이 연결되지 않았습니다(미연결). 기존 설명·판정·기록은 그대로 쓸 수 있습니다.' : '계정 연결 화면을 준비하는 중…';
   const kind = view ? view.kind : aiConnectLoadFailed ? 'error' : 'empty';
   const until = view && view.expiresAtMs !== null ? formatTime(new Date(view.expiresAtMs).toISOString()) : null;
@@ -623,6 +630,11 @@ function renderNativeLogin() {
 }
 
 async function loadConnectModule() {
+  if (document.documentElement?.dataset?.runtime === 'web') {
+    aiConnectLoadFailed = true;
+    renderAiConnect(); renderNativeLogin();
+    return;
+  }
   try {
     aiConnectModule = await import('/ai-connect.mjs');
     aiConnect = aiConnectModule.createAiConnectController({ onChange: () => renderAiConnect() });
@@ -1271,18 +1283,21 @@ function renderStudent(kind) {
   if (kind === 'overview') {
     syncReadControl('overview-refresh', 'overview-query-status', target, overviewReadBusy(), overviewReadBusy()
       ? '새로 읽는 중… PC·Windows·보안 연결 자료를 각각 확인합니다. Windows 조회는 최대 30초가 걸릴 수 있습니다.'
+      : pcState.environment === 'web' ? '웹 배포 · PC 실측 미연결. 실제 조회·기록 보관은 이 PC의 로컬 앱에서 확인하세요.'
       : 'PC는 5초 갱신 · Windows는 화면 진입/수동 조회 · 항목별 출처·시각과 실패 이유를 확인하세요.');
     if ($('overview-range').value !== String(pcState.rangeMinutes)) $('overview-range').value = String(pcState.rangeMinutes);
   }
   if (kind === 'connectionStatus') {
     syncReadControl('connection-read', 'connection-query-status', target, connectionReadState.status === 'loading',
-      connectionReadState.status === 'loading' ? '새로 읽는 중… 네트워크·방화벽·Windows 기록을 확인합니다. 최대 30초가 걸릴 수 있습니다.'
+      pcState.environment === 'web' ? '웹 배포 · PC 조회와 SDP 상태 확인 불가. 실제 조회는 이 PC의 로컬 앱에서 진행하세요.'
+        : connectionReadState.status === 'loading' ? '새로 읽는 중… 네트워크·방화벽·Windows 기록을 확인합니다. 최대 30초가 걸릴 수 있습니다.'
         : connectionReadState.status === 'error' ? '연결과 기록 조회 실패. 아래에서 실패한 항목과 다음 할 일을 확인하세요.'
         : connectionReadState.status === 'ok' ? '조회 응답 확인 · ' + formatTime(connectionReadState.data.checkedAt) + ' · 항목별 성공/실패는 아래 결과를 확인하세요.' : '연결과 기록 화면에 들어가면 한 번 조회합니다.');
   }
   if (kind === 'pcStatus') {
     syncReadControl('pc-sample', 'pc-query-status', target, pcState.status === 'loading',
-      pcState.manualPending || pcState.status === 'loading' && !pcState.data ? '새로 읽는 중… CPU·메모리·C:와 기록을 확인합니다.'
+      pcState.environment === 'web' ? 'PC 실측 미연결 · 이 웹 화면에서는 측정이나 기록 보관을 실행하지 않습니다. 로컬 앱에서 확인하세요.'
+        : pcState.manualPending || pcState.status === 'loading' && !pcState.data ? '새로 읽는 중… CPU·메모리·C:와 기록을 확인합니다.'
         : pcState.status === 'error' ? 'PC 상태 조회 실패. 아래에서 실패한 항목과 다음 할 일을 확인하세요.'
         : pcState.lastManualAt ? '다시 조회 응답 확인 · 측정 시각 ' + formatTime(pcState.lastManualAt)
         : '자동 측정은 이 화면이 보일 때만 5초 간격으로 실행됩니다.');
@@ -1365,6 +1380,12 @@ function syncPcPolling() {
   } else {renderStudent('pcStatus'); renderStudent('overview');}
 }
 async function updatePcStatus({manual = false} = {}) {
+  if (pcState.environment === 'web') {
+    stopPcPolling();
+    pcState = {...pcState, status: 'unavailable', data: null, error: null, recording: false, paused: true};
+    renderStudent('pcStatus'); renderStudent('overview');
+    return;
+  }
   if (!pcActive() || pcState.paused && !manual) return;
   stopPcPolling();
   if (manual) pcState.paused = false;
@@ -1508,6 +1529,12 @@ async function loadAll() {
 }
 
 function init() {
+  const webNotice = $('web-runtime-notice');
+  if (webNotice) webNotice.hidden = document.documentElement?.dataset?.runtime !== 'web';
+  if (document.documentElement?.dataset?.runtime === 'web') {
+    $('pc-description').textContent = '웹 배포에는 PC 에이전트가 연결되지 않아 CPU·메모리·C:를 측정하지 않습니다. 이 PC의 로컬 앱에서 실제 값을 확인하세요.';
+    $('connection-description').textContent = '웹 배포에서는 접속한 PC의 네트워크·방화벽·Windows 기록과 SDP 연결을 확인할 수 없습니다. 이 PC의 로컬 앱에서 조회하세요.';
+  }
   setupNav();
   $('overview-refresh').addEventListener('click', refreshOverview);
   $('overview-range').addEventListener('change', event => {

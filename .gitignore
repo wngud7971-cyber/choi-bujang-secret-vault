@@ -10,3 +10,5 @@ public/aleph.json
 private/
 # Local PC readings are runtime data, not source or submission artifacts.
 on-client/.local/
+# Generated Vercel dashboard output; source and local PC data stay separate.
+/web-build/

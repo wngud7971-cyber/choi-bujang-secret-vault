@@ -14,6 +14,14 @@ node .\on-client\src\server.mjs
 
 Git으로 받을 때는 위 작업 브랜치를 선택하고 `git rev-parse HEAD`로 전달받은 커밋과 대조한다. 실행 안내에 준비·내려받기·키보드·읽기 실패·안전한 서버 정지/복구 확인과 결과 기록 순서가 있다. 기존 프로젝트·제출물·1~22단계 이력은 보존한다.
 
+### Vercel 웹 화면과 PC 앱
+
+Vercel은 `npm run build -- --agent-web`로 `web-build`를 생성해 최신 케셰브 화면을 배포한다. 기존 가상 자료실은 `/library/`, 탈환 작전실은 `/operations.html`에 보존하며 기존 API의 인증·기기 확인은 변경하지 않는다. 원본 `public/index.html`도 보존한다. 웹 빌드는 실행 패키지나 승인된 설치형 호스트를 만드는 `package-app` 도구가 아니다.
+
+웹에는 PC 에이전트가 연결되지 않아 CPU·메모리·C:·Windows 기록은 ‘확인 불가’로 표시하며 측정 시각·그래프·예제값을 만들지 않는다. 로컬용 계정·AI 연결 요청도 보내지 않는다. 로컬 앱은 계속 `node .\on-client\src\server.mjs`로 실행하고 실제 PC 조회·24시간 로컬 기록을 사용한다. 두 실행 환경은 같은 화면·학생 모듈 소스를 사용한다. 웹 빌드·기존 빌드·화면·PC·연결 관련 검사 **47개 통과**이며, 이 수치는 실제 Vercel 배포나 설치형 실행 성공을 뜻하지 않는다.
+
+배포 전 로컬 출력 확인은 `node .\scripts\build-public.mjs --local --agent-web`, 관련 검사는 `node --test .\test\web-deployment.test.mjs .\test\build-public.test.mjs .\test\day4-ui.test.mjs .\test\pc-status.test.mjs .\test\connection-status.test.mjs`다. Windows에서 `node`를 못 찾으면 위 실행 안내의 확인된 실행 파일 경로를 사용한다. Vercel의 운영 주소는 Production으로 반영된 커밋을 확인한 뒤, 첫 화면·내 PC 상태의 미연결 표시·`/library/`를 확인한다. Git 작업 브랜치 업로드만으로 기존 운영 주소가 갱신됐다고 판단하지 않는다.
+
 ---
 
 # 케셰브_배주형 · 22단계 인수인계

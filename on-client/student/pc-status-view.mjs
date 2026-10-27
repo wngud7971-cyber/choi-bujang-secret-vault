@@ -120,7 +120,7 @@ function addTrend(plot, history, key, rangeMinutes, now) {
   plotDrawers.set(plot, draw); draw();
 }
 
-export function renderPcStatusView({status = 'idle', data, error, rangeMinutes = 5, recording = false, paused = false, compact = false, sidePanel} = {}) {
+export function renderPcStatusView({status = 'idle', data, error, rangeMinutes = 5, recording = false, paused = false, compact = false, sidePanel, environment = 'local'} = {}) {
   const element = (tag, text, className) => {
     const node = document.createElement(tag);
     if (text !== undefined) node.textContent = text;
@@ -133,6 +133,22 @@ export function renderPcStatusView({status = 'idle', data, error, rangeMinutes =
     box.appendChild(element('h3', title)); box.appendChild(element('p', '확인 불가 · ' + reason));
     box.appendChild(element('p', '다음 할 일: ' + next, 'feedback-next')); return box;
   };
+  if (environment === 'web') {
+    root.appendChild(element('p', '웹 배포 · PC 실측 미연결 · 측정·자동 갱신·로컬 기록 보관을 실행하지 않습니다.', 'pc-run-state'));
+    const cards = element('div', undefined, 'pc-metrics');
+    for (const key of Object.keys(names)) {
+      const card = element('section', undefined, 'card pc-metric');
+      card.appendChild(element('h3', names[key]));
+      card.appendChild(element('p', '확인 불가', 'pc-value'));
+      card.appendChild(element('p', '이 웹 화면에 PC 에이전트가 연결되지 않았습니다.', 'pc-metric-foot'));
+      card.appendChild(element('p', '측정 시각: 없음 · 단위: ' + units[key], 'pc-metric-foot'));
+      card.appendChild(element('p', '다음 할 일: 이 PC의 로컬 앱에서 실제 값을 조회하세요.', 'feedback-next'));
+      cards.appendChild(card);
+    }
+    if (sidePanel) cards.appendChild(sidePanel);
+    root.appendChild(cards);
+    return root;
+  }
   // Controls have a stable host mount so five-second redraws do not replace a focused select.
   const runState = element('p', recording ? '실측 자동 갱신 중 · 5초 간격'
     : paused ? '요청 실패로 자동 갱신 중지 · 다시 조회로 다시 시작하세요.' : '자동 측정 대기 · 이 화면을 보고 있을 때만 수집합니다.', 'pc-run-state');
