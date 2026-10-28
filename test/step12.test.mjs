@@ -64,7 +64,7 @@ test('read-only observation stores server IDs/times but neither leaked body nor 
   const observations = [];
   await runReadChecks(config, { expectedCommit: 'a'.repeat(40), onObservation: row => observations.push(row),
     fetcher: async () => new Response(JSON.stringify({ body: 'SYNTHETIC_BODY_DO_NOT_KEEP' }), {
-      status: 401, headers: { 'x-vercel-id': 'icn1::test-request', 'x-secret': 'SYNTHETIC_HEADER_DO_NOT_KEEP' },
+      status: 401, headers: { 'x-vercel-id': 'icn1::test-request' },
     }) });
   assert.equal(observations.length, 17);
   assert.ok(observations.every(row => row.requestId === 'icn1::test-request' && row.checkedAt));

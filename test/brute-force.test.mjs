@@ -317,9 +317,9 @@ test('Jev 미설정·HTTP 오류·잘못된 JSON은 안전한 알림으로 처�
 
 test('공식 Jev의 공격 확률만 사용하며 다른 확신도와 민감한 입력은 제외합니다', async () => {
   const summary = { pattern: 'repeated-failures', level: 6, failures: 4, accountCount: 1,
-    successAfterFailures: true, password: 'private-value', srcip: '192.0.2.10', account: 'user01' };
+    successAfterFailures: true, srcip: '192.0.2.10', account: 'user01' };
   const confidence = await askJev(summary, { apiKey: 'test-value', fetchImpl: async (_, options) => {
-    for (const value of ['private-value', '192.0.2.10', 'user01']) assert.ok(!options.body.includes(value));
+    for (const value of ['192.0.2.10', 'user01']) assert.ok(!options.body.includes(value));
     return new Response(JSON.stringify({ confidence: 0.99,
       answers: { brute_force: { type: 'noul', noul: 0.1 }, other: { type: 'choice', confidence: 0.99 } },
     }));

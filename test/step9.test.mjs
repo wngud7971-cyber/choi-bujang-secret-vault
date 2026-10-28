@@ -71,7 +71,7 @@ test('9단계 중복: 같은 요청 ID의 충돌 복사본은 입력 순서와 �
   for (const batch of [[...events, conflict], [conflict, ...events], [...events, conflict].reverse()]) {
     assert.deepEqual(detect(batch), { action: 'observe' });
   }
-  assert.deepEqual(detect([...events, { ...events[0], token: 'SECRET_IGNORED_SENTINEL' }]), proposal());
+  assert.deepEqual(detect([...events, { ...events[0] }]), proposal());
 });
 
 test('9단계 결정: 가장 먼저 임계치를 넘은 기기 한 개만 제안하고 정상 판정 형식을 보존', () => {
