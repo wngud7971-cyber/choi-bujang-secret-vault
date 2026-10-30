@@ -1,58 +1,303 @@
 // 이 파일은 학생이 같은 프로젝트에서 이어서 구현합니다.
 // 제공 UI를 받은 것만으로 단계 완료를 인정하지 않습니다.
-import {renderPcStatusView} from './pc-status-view.mjs';
-import {renderConnectionStatusView, renderWindowsEventSummary} from './connection-status-view.mjs';
+import {renderPcStatusView, validPcPayload} from './pc-status-view.mjs';
+import {renderConnectionStatusView, renderWindowsEventSummary, validConnectionPayload} from './connection-status-view.mjs';
+// Use the host's validated appearance stylesheet without inline CSS or changes
+// to provided files. Static web builds keep their bundled default palette.
+function connectStudentAppearance(doc) {
+  if (!doc.head || typeof doc.head.querySelector !== 'function' || doc.documentElement?.dataset?.runtime === 'web') return;
+  if (doc.head.querySelector('link[rel="stylesheet"][href="/student/appearance.css"]')) return;
+  const link = doc.createElement('link');
+  link.setAttribute('rel', 'stylesheet'); link.setAttribute('href', '/student/appearance.css');
+  link.setAttribute('data-student-appearance', 'true'); doc.head.appendChild(link);
+}
 export function createStudentView({actions = {}, capabilities = {}} = {}) {
-  // Only named host callbacks are used. No new URL, POST API or security-setting access is exposed.
+  if (typeof document !== 'undefined') connectStudentAppearance(document);
+  // Summaries use only the existing student render inputs. Shortcuts focus
+  // provided controls; they never click them or start a request.
+  const coreModels = {
+    diagnostics: {state: '진단 조회 전', summary: '조회 오류와 연결 진단을 확인합니다.', note: '알림과 진단 정보를 아래 점검 영역에서 확인하세요.', tone: 'pending'},
+    ai: {state: 'AI 연결 점검 전', summary: '현재 계정의 모델 응답을 직접 점검합니다.', note: '계정 연결·AI 앱 승인 후 사용자가 직접 점검합니다.', tone: 'pending'},
+    packages: {state: '패키지 조회 전', summary: '설치 버전과 알려진 취약점을 대조합니다.', note: '조회 대상 프로젝트·공개 패키지 설정 후 직접 조회합니다.', tone: 'pending'},
+  };
+  const coreNodes = new Map();
+  const coreTime = at => typeof at === 'string' && Number.isFinite(Date.parse(at))
+    ? new Intl.DateTimeFormat('ko-KR', {timeZone:'Asia/Seoul',hour12:false,month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date(at)) + ' KST'
+    : '새 조회 결과 없음';
+  const updateCoreTime = (node, at) => {
+    node.textContent = coreTime(at);
+    if (typeof at === 'string' && Number.isFinite(Date.parse(at))) node.setAttribute('datetime', new Date(at).toISOString());
+    else node.removeAttribute('datetime');
+  };
+  const reportedTime = at => typeof at === 'string' && Number.isFinite(Date.parse(at))
+    ? '확인 시각: ' + new Date(at).toISOString() : '확인 시각: 미확인';
+  const publishCore = (key, model) => {
+    coreModels[key] = model;
+    const nodes = coreNodes.get(key);
+    if (nodes) {
+      nodes.card.setAttribute('data-observation', model.tone);
+      nodes.state.textContent = model.state;
+      nodes.summary.textContent = model.summary;
+      updateCoreTime(nodes.time, model.checkedAt);
+      nodes.note.textContent = model.note;
+    }
+  };
+  const summarizeDiagnostics = ({diagnostics, notifications, mode}) => {
+    const alertText = Array.isArray(notifications) ? '알림 ' + notifications.length + '건. ' : '알림 확인 불가. ';
+    const demo = diagnostics?.mode === 'demo' || mode === 'demo';
+    let state = '진단 조회 전', note = alertText + '도움정보 불러오기를 직접 누르세요.', tone = 'pending';
+    let summary = alertText.trim();
+    if (diagnostics?.status === 'loading') summary += ' 진단 정보를 불러오는 중입니다.';
+    if (diagnostics?.status === 'loading') state = '진단 조회 중';
+    else if (diagnostics?.status === 'error') {state = '진단 조회 실패'; summary = '서버 연결과 상세 오류를 확인한 뒤 다시 불러오세요.'; note = alertText + '서버 연결과 상세 오류를 확인한 뒤 다시 불러오세요.';}
+    else if (diagnostics?.status === 'ok') {
+      const data = diagnostics.data;
+      const fields = [data?.requestId, data?.component, data?.version, data?.checkedAt, data?.engine?.mode, data?.engine?.code];
+      if (fields.every(value => typeof value === 'string' && value.trim().length > 0)) {
+        state = '진단 정보 조회됨'; tone = demo ? 'demo' : 'observed';
+        note = alertText + reportedTime(data.checkedAt) + '. 진단 조회 성공은 보안 엔진 연결 성공과 별개입니다.';
+      } else {state = '진단 정보 확인 불가'; note = alertText + '필수 진단 항목을 확인하지 못했습니다. 상세 정보를 확인하세요.';}
+    }
+    if (demo) {note += ' 예제 자료 · 실제 연결 아님.'; summary += ' 예제 자료 · 실제 연결 아님.';}
+    return {state, summary, note, tone, checkedAt: diagnostics?.status === 'ok' ? diagnostics.data?.checkedAt : null};
+  };
+  const summarizeAi = ({status, mode, data, checkedAt}) => {
+    let state = 'AI 연결 점검 전', note = '기존 AI 연결 점검 버튼을 직접 누르세요. 이동만으로 요청하지 않습니다.', tone = 'pending';
+    let summary = '계정 연결·AI 앱 승인 후 직접 점검하세요.';
+    if (status === 'loading') state = 'AI 연결 점검 중';
+    if (status === 'loading') summary = '현재 계정의 모델 응답을 확인하고 있습니다.';
+    else if (status === 'error') {state = 'AI 연결 점검 실패'; summary = '상세 오류와 다음 행동을 확인하세요.'; note = '아래 상세 오류와 다음 행동을 확인하세요. 이전 성공을 현재 결과로 표시하지 않습니다.';}
+    else if (status === 'ok') {
+      if (data?.transportChecked === true && ['verified', 'test'].includes(data.audienceAuthorization)
+        && Number.isInteger(data.modelCount) && data.modelCount >= 0 && data.modelCount <= 10000) {
+        state = data.modelCount === 0 ? '사용 가능한 모델 없음'
+          : data.audienceAuthorization === 'verified' ? '앱 권한 확인 후 응답 점검됨(verified)' : '시험 연결 점검(test)';
+        tone = data.modelCount > 0 && data.audienceAuthorization === 'verified' && mode !== 'demo' ? 'observed' : 'pending';
+        summary = '응답 모델 ' + data.modelCount + '개' + (data.audienceAuthorization === 'test' ? ' · 실제 앱 권한 검증 아님' : ' · 사건 설명과 별도');
+        note = '응답 모델 수 ' + data.modelCount + ' · ' + reportedTime(checkedAt) + '. 조회 당시 결과이며 사건 설명을 실행한 것은 아닙니다.';
+        if (data.audienceAuthorization === 'test') note += ' 시험 결과는 실제 앱 권한 검증이 아닙니다.';
+      } else {state = 'AI 점검 결과 확인 불가'; summary = '응답의 검증 항목을 확인하지 못했습니다.'; note = '설정 존재나 불완전한 응답으로 연결 성공을 판단하지 않습니다.';}
+    }
+    if (mode === 'demo') {note += ' 예제 자료 · 실제 AI 연결 아님.'; summary += ' 예제 자료 · 실제 AI 연결 아님.'; tone = 'demo';}
+    return {state, summary, note, tone, checkedAt: status === 'ok' ? checkedAt : null};
+  };
+  const summarizePackages = ({status, mode, data}) => {
+    let state = '패키지 조회 전', note = '조회 대상 프로젝트와 공개 조회 허용 목록을 준비한 뒤 직접 조회하세요.', tone = 'pending';
+    let summary = '공개 조회가 허용된 설치 패키지만 확인합니다.';
+    if (status === 'loading') {state = '패키지 조회 중'; summary = '실제 설치 버전을 대조하고 OSV 응답을 기다리는 중입니다.'; note = '실제 설치 버전을 대조하고 OSV 응답을 기다리는 중입니다. 완료 전에는 결과를 판단하지 않습니다.';}
+    else if (status === 'error') {state = '패키지 조회 실패'; summary = '상세 오류를 확인하세요. 취약점 없음으로 해석하지 마세요.'; note = '상세 오류를 확인하세요. 조회 실패는 알려진 취약점 없음이 아닙니다.';}
+    else if (status === 'ok') {
+      const labels = {not_configured: '조회 준비 미완료', not_checked: '승인된 조회 대상 없음', unverifiable: '설치 정보 확인 불가', partial: '일부 조회 확인 불가', complete: '패키지 조회 완료'};
+      state = data && Object.hasOwn(labels, data.status) ? labels[data.status] : '패키지 조회 결과 확인 불가';
+      if (data?.status === 'not_configured') {summary = '설치 폴더와 공개 조회 허용 목록 설정이 필요합니다.'; note = 'PROJECT_NOT_CONFIGURED · 실제 설치 폴더와 공개 조회 허용 목록 설정이 필요합니다. 아직 조회하지 않았습니다.';}
+      else if (data?.status === 'not_checked') {summary = '조회하지 않았습니다. 취약점 없음으로 해석하지 마세요.'; note = '승인된 대상이 없어 조회하지 않았습니다. 취약점 없음으로 해석하지 마세요.';}
+      else if (data?.status === 'unverifiable') {summary = '설치 정보를 확인할 수 없습니다. 상세 오류를 확인하세요.'; note = 'lock 파일과 실제 설치 정보를 대조하지 못했습니다. 상세 오류를 확인하세요.';}
+      else if (data && ['partial', 'complete'].includes(data.status)) {
+        const rows = data.packages;
+        if (!Array.isArray(rows) || rows.length === 0 || rows.some(row => !['known_vulnerabilities', 'none_found', 'unverifiable'].includes(row?.status))) {
+          state = '패키지 조회 결과 확인 불가';
+        } else {
+          const unknown = rows.filter(row => row.status === 'unverifiable').length;
+          const findings = rows.filter(row => row.status === 'known_vulnerabilities' || Array.isArray(row.vulnerabilities) && row.vulnerabilities.length > 0).length;
+          if (unknown > 0) state = '일부 조회 확인 불가';
+          tone = data.status === 'complete' && unknown === 0 && findings === 0 && mode !== 'demo' ? 'observed' : 'pending';
+          summary = '조회 대상 ' + rows.length + '개 · 취약점 정보 수신 ' + findings + '개 패키지 · 확인 불가 ' + unknown + '개';
+          note = '조회 대상 ' + rows.length + '개 · 확인 불가 ' + unknown + '개 · ' + reportedTime(data.checkedAt) + '. 알려진 항목 없음은 앱 전체의 안전 보장이 아닙니다.';
+        }
+      }
+    }
+    if (mode === 'demo') {note += ' 예제 자료 · 실제 설치 패키지 조회 아님.'; summary += ' 예제 자료 · 실제 설치 패키지 조회 아님.'; tone = 'demo';}
+    return {state, summary, note, tone, checkedAt: status === 'ok' ? data?.checkedAt : null};
+  };
+  const focusProvided = id => {
+    const target = document.getElementById(id);
+    if (!target) return;
+    for (let parent = target.parentElement; parent; parent = parent.parentElement) {
+      if (parent.tagName?.toLowerCase() === 'details') parent.open = true;
+    }
+    target.scrollIntoView?.({block: 'center'});
+    if (!target.disabled) target.focus?.({preventScroll: true});
+  };
+  const renderCore = el => {
+    coreNodes.clear();
+    const section = el('section', undefined, 'defense-overview');
+    section.setAttribute('aria-label', '선정한 핵심 기능 세 가지');
+    const heading = el('div', undefined, 'pc-page-head');
+    heading.appendChild(el('h3', '보안 점검'));
+    heading.appendChild(el('p', '진단 · AI 응답 · OSV', 'muted'));
+    section.appendChild(heading);
+    section.appendChild(el('p', '최근 응답을 항목별로 확인하세요. 조회 전·실패·확인 불가를 점검 완료로 해석하지 않습니다.', 'overview-note'));
+    // Reuse the existing table styles and overflow container. No new CSS or
+    // requests are introduced; these are the same three render inputs.
+    const scroll = el('div', undefined, 'connection-table-wrap');
+    scroll.setAttribute('role', 'region');
+    scroll.setAttribute('aria-label', '보안 점검 목록 · 좁은 화면에서는 좌우로 스크롤');
+    scroll.setAttribute('tabindex', '0');
+    const table = el('table');
+    table.setAttribute('aria-label', '세 핵심 점검의 현재 상태와 최근 응답');
+    const thead = el('thead'), columns = el('tr');
+    for (const label of ['점검 항목', '현재 상태와 근거', '최근 응답 · KST', '확인']) {
+      const th = el('th', label); th.setAttribute('scope', 'col'); columns.appendChild(th);
+    }
+    thead.appendChild(columns); table.appendChild(thead);
+    const body = el('tbody');
+    const rows = [
+      ['diagnostics', '16', '오류 알림·진단', 'diag-load', '진단 확인 영역으로 이동'],
+      ['ai', '17', 'AI 연결 점검', 'ai-check', 'AI 점검 영역으로 이동'],
+      ['packages', '20', '설치 패키지 취약점 조회', 'vulnerabilities-load', '취약점 조회 영역으로 이동'],
+    ];
+    for (const [key, stage, title, target, label] of rows) {
+      const model = coreModels[key], card = el('tr', undefined, 'core-feature-row');
+      card.setAttribute('data-core-feature', stage); card.setAttribute('data-observation', model.tone);
+      const name = el('th'); name.setAttribute('scope', 'row');
+      name.appendChild(el('h3', title));
+      name.appendChild(el('p', {diagnostics:'연결 진단',ai:'모델 응답 점검',packages:'설치 버전 대조'}[key], 'connection-source'));
+      card.appendChild(name);
+      const result = el('td');
+      const state = el('strong', model.state, 'item-title'), summary = el('p', model.summary, 'overview-card-note');
+      state.setAttribute('role', 'status'); result.appendChild(state); result.appendChild(summary);
+      const details = el('details', undefined, 'defense-detail');
+      details.setAttribute('data-preserve-key', 'core-details-' + key);
+      const interpretation = el('summary', '결과 해석·다음 할 일');
+      interpretation.setAttribute('data-focus-key', 'core-details-' + key); details.appendChild(interpretation);
+      const note = el('p', model.note, 'defense-description'); details.appendChild(note); result.appendChild(details);
+      card.appendChild(result);
+      const timestamp = el('td');
+      const time = el('time', undefined, 'overview-event-time'); updateCoreTime(time, model.checkedAt);
+      timestamp.appendChild(time); card.appendChild(timestamp);
+      const action = el('td');
+      const button = el('button', label, 'btn overview-card-action');
+      button.type = 'button'; button.setAttribute('data-focus-key', 'core-' + key);
+      if (capabilities.overviewSlot === true) button.addEventListener('click', () => focusProvided(target));
+      else {button.disabled = true; button.setAttribute('title', '해당 메뉴의 버튼을 사용하세요.');}
+      action.appendChild(button); card.appendChild(action);
+      coreNodes.set(key, {card, state, summary, time, note}); body.appendChild(card);
+    }
+    table.appendChild(body); scroll.appendChild(table); section.appendChild(scroll);
+    section.appendChild(el('p', '각 버튼은 점검 영역으로 이동합니다. 조회·연결 승인·AI 요청은 이동한 뒤 직접 실행하세요.', 'connection-source'));
+    return section;
+  };
+  // Flatten only DOM returned by student renderers. Keep metric classes,
+  // controls, error states, data attributes and the provided host DOM intact.
+  const flattenStudentPanels = node => {
+    if (typeof node.className === 'string') node.className = node.className.split(/\s+/).filter(name => name !== 'card').join(' ');
+    for (const child of node.children ?? []) flattenStudentPanels(child);
+    return node;
+  };
   const overview = ({identity, events, sdp, sdpCurrent = false, pcStatus, connectionStatus} = {}) => {
     const el = (tag, value, cls) => {const node = document.createElement(tag); if (value !== undefined) node.textContent = value; if (cls) node.className = cls; return node;};
     const root = el('div', undefined, 'defense-overview');
-    root.appendChild(el('p', '방어 목표별 연결·검증 상태 · 미확인은 방어 성공이 아닙니다.', 'overview-note'));
-    const grid = el('div', undefined, 'defense-grid');
+    const now = Date.now();
+    const time = value => Number.isFinite(Date.parse(value)) ? new Intl.DateTimeFormat('ko-KR', {timeZone:'Asia/Seoul', hour12:false,
+      month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date(value)) + ' KST' : '확인 불가';
+    const fresh = (value, limit) => Number.isFinite(Date.parse(value)) && now - Date.parse(value) >= 0 && now - Date.parse(value) <= limit;
+    root.appendChild(el('p', '이 PC의 실측 · Windows 읽기 전용 조회 · 보안 연결 상태', 'overview-note'));
+    const grid = el('div', undefined, 'connection-table-wrap');
+    grid.setAttribute('role', 'region'); grid.setAttribute('tabindex', '0');
+    grid.setAttribute('aria-label', 'PC·Windows·보안 연결의 관측 현황 · 좁은 화면에서는 좌우로 스크롤');
+    const statusTable = el('table'); statusTable.setAttribute('aria-label', '실측과 보안 연결의 조회 범위');
+    const statusHead = el('thead'), statusColumns = el('tr');
+    for (const text of ['관측 항목', '조회 상태와 근거', '확인']) {
+      const th = el('th', text); th.setAttribute('scope', 'col'); statusColumns.appendChild(th);
+    }
+    statusHead.appendChild(statusColumns); statusTable.appendChild(statusHead);
+    const statusBody = el('tbody');
     const demo = identity?.mode === 'demo' || events?.mode === 'demo';
-    const sdpAge = sdp && Date.now() - Date.parse(sdp.checkedAt);
-    const freshSdp = sdpCurrent && sdp && Number.isFinite(sdpAge) && sdpAge >= 0 && sdpAge <= 60000;
+    const freshSdp = sdpCurrent && sdp && fresh(sdp.checkedAt, 60000);
+    const ownEngine=identity?.engineSource==='keshev';
     const sessionState = demo ? '예제 · 실제 연결 아님'
+      : ownEngine ? identity?.status==='ok'?'자체 엔진 계정·기기 확인됨 · 접근 효과는 기록에서 확인':'자체 엔진 연결 준비 중 · 로그인·기기 확인 필요'
       : freshSdp && sdp.status === 'connected' ? 'SDP 세션 확인됨 · 차단 효과 미확인'
       : freshSdp && sdp.status === 'disconnected' ? 'SDP 미연결'
       : identity?.mode === 'disconnected' ? '보안 엔진 미연결' : '현재 접근 통제 확인 불가';
+    const pc = validPcPayload(pcStatus?.data, true) ? pcStatus.data.latest : null;
+    const pcCount = pc ? ['cpu','memory','disk'].filter(key => pc[key].status === 'ok').length : 0;
+    const pcCurrent = pc && fresh(pc.measuredAt, 15000) && pcStatus.status !== 'error';
+    const pcState = pcStatus?.environment === 'web' ? '로컬 앱에서 확인'
+      : pcStatus?.status === 'error' ? '측정 요청 실패'
+      : pcStatus?.status === 'loading' && !pc ? '실측 조회 중'
+      : !pc ? '측정 전 · 확인 불가'
+      : !pcCurrent ? '이전 측정 기록'
+      : pcCount === 3 ? '3개 지표 조회됨' : '일부 지표 확인 불가';
+    const pcNote = pcStatus?.environment === 'web' ? '웹 화면에는 PC 에이전트가 연결되지 않았습니다.'
+      : pc ? 'CPU · 메모리 · C: 중 ' + pcCount + '/3개 조회 · ' + time(pc.measuredAt)
+        + (pcStatus.status === 'loading' ? ' · 새 측정 조회 중' : '')
+      : 'CPU · 메모리 · C:의 실제 측정값만 표시합니다.';
+    const windows = validConnectionPayload(connectionStatus?.data) ? connectionStatus.data : null;
+    const windowsChecks = windows ? [windows.network.status === 'ok' && windows.network.interfaces.every(row => row.configuration.status === 'ok'),
+      windows.firewall.status === 'ok' && windows.firewall.active.status === 'ok' && windows.firewall.profiles.every(row => row.status === 'ok'),
+      windows.events.status === 'ok' && windows.events.logs.every(row => row.status === 'ok')] : [];
+    const windowsCount = windowsChecks.filter(Boolean).length;
+    const windowsState = connectionStatus?.status === 'loading' ? 'Windows 조회 중'
+      : connectionStatus?.status === 'error' ? '조회 요청 실패'
+      : !windows ? '조회 전 · 확인 불가'
+      : !fresh(windows.checkedAt, 60000) ? '이전 조회 기록'
+      : windowsCount === 3 ? '3개 영역 조회됨' : '일부 영역 확인 불가';
+    const windowsNote = windows ? '네트워크 · 방화벽 · Windows 기록 중 ' + windowsCount + '/3개 조회 · ' + time(windows.checkedAt)
+      + (connectionStatus?.status !== 'ok' ? ' · 이전 조회 자료' : '') : '설정을 변경하지 않고 관측 가능한 상태를 읽습니다.';
+    const eventNote = demo ? '예제 기록 · 실제 대응 아님' : events?.status === 'ok' ? '보안 기록 조회됨 · 대응 효과 미확인' : '보안 기록 연결 확인 불가';
     const rows = [
-      ['01', '제로트러스트 접근 통제', sessionState,
-        '계정·기기·세션을 근거로 접근을 확인하는 목표입니다. 세션 조회와 실제 정책 집행 효과는 별도로 검증합니다.',
-        '다음 할 일: 연결과 기록에서 SDP 상태를 확인하고, 업무 앱에서 실제 접속 판정을 확인하세요.'],
-      ['02', 'DDoS·API 남용 대응', '방어 효과 미확인',
-        '트래픽 제한·앞단 방어 연결·차단 효과를 확인할 자료가 아직 없습니다. CPU 사용률을 DDoS 탐지 결과로 해석하지 않습니다.',
-        '다음 할 일: 보호할 서비스의 트래픽 관측과 방어 연결을 준비해야 합니다.'],
-      ['03', '계정 악용·자료 유출 대응', demo ? '예제 기록 · 실제 대응 아님' : events?.status === 'ok' ? '보안 기록 조회됨 · 대응 효과 미확인' : '보안 기록·대응 연결 확인 불가',
-        '실제 보안 사건과 대응 근거를 확인하는 목표입니다. Windows 경고·오류 건수는 침해 판정이 아닙니다.',
-        '다음 할 일: 보안 기록에서 원천 사건·근거·지원 조치를 확인하세요.'],
+      {order:'01', title:'내 PC 실측', state:pcState, note:pcNote, tone:pcCurrent && pcCount === 3 ? 'observed' : 'pending', key:'openPc', button:'PC 상태 보기',
+        description:'Node.js OS·파일 시스템 API에서 수집한 CPU·메모리·C: 가용 공간입니다. 과거 기록과 수집 공백은 유지하며, 사용률을 공격 탐지 결과로 해석하지 않습니다.',
+        next:pcStatus?.environment === 'web' ? '다음 할 일: 이 PC의 로컬 앱을 실행하세요.' : '다음 할 일: 아래 추이와 측정 시각을 확인하세요. 조회 실패 시 위의 다시 조회를 누르세요.'},
+      {order:'02', title:'Windows 상태', state:windowsState, note:windowsNote, tone:connectionStatus?.status === 'ok' && windowsCount === 3 && fresh(windows?.checkedAt,60000) ? 'observed' : 'pending', key:'openConnections', button:'연결과 기록 보기',
+        description:'네트워크·프로필별 방화벽·최근 24시간 System/Application 경고·오류를 읽습니다. 조회 실패는 0건이 아니며 경고·오류 건수는 침해 판정이 아닙니다.',
+        next:'다음 할 일: 연결과 기록에서 항목별 결과와 출처를 확인하세요. 실패한 항목은 이유를 확인한 뒤 다시 조회하세요.'},
+      {order:'03', title:'보안 연결 현황', state:sessionState, note:eventNote, tone:demo ? 'demo' : 'pending', key:'openRecords', button:'보안 기록 보기',
+        description:'계정·기기·세션과 보안 기록의 연결 상태입니다. PC 조회 성공은 보안 엔진 연결이나 방어 성공이 아닙니다. AI 연결 점검과 사건 설명은 아래 별도 영역에서 확인합니다.',
+        next:'다음 할 일: 아래 기존 보안 도구에서 계정·업무 앱·AI의 상태를 확인하세요. 서버 미연결은 현재 실행의 한계로 남깁니다.'},
     ];
-    for (const [order, title, state, description, next] of rows) {
-      const card = el('section', undefined, 'card defense-card');
-      card.appendChild(el('p', order + ' · 방어 목표', 'defense-order'));
-      card.appendChild(el('h3', title)); card.appendChild(el('p', state, 'defense-state'));
+    for (const {order, title, state, note, tone, key, button:buttonText, description, next} of rows) {
+      const card = el('tr');
+      card.setAttribute('data-status-summary', key); card.setAttribute('data-observation',tone);
+      const name = el('th', title); name.setAttribute('scope', 'row'); card.appendChild(name);
+      const result = el('td');
+      result.appendChild(el('strong', state, 'item-title'));
+      result.appendChild(el('p',note,'overview-card-note'));
+      const button = el('button', buttonText, 'btn overview-card-action'); button.setAttribute('type','button'); button.setAttribute('data-focus-key',key);
+      if(typeof actions[key] === 'function') button.addEventListener('click',()=>actions[key]());
+      else {button.disabled=true;button.setAttribute('title','이 실행 환경에서는 바로가기를 사용할 수 없습니다. 해당 메뉴를 사용하세요.');}
       const details = el('details', undefined, 'defense-detail'); details.setAttribute('data-preserve-key', 'defense-' + order);
       const summary = el('summary', '근거와 다음 할 일'); summary.setAttribute('data-focus-key', 'defense-' + order); details.appendChild(summary);
-      details.appendChild(el('p', description, 'defense-description')); details.appendChild(el('p', next, 'defense-next')); card.appendChild(details);
-      grid.appendChild(card);
+      details.appendChild(el('p', description, 'defense-description')); details.appendChild(el('p', next, 'defense-next')); result.appendChild(details);
+      card.appendChild(result);
+      const action = el('td'); action.appendChild(button); card.appendChild(action);
+      statusBody.appendChild(card);
     }
+    statusTable.appendChild(statusBody); grid.appendChild(statusTable);
     root.appendChild(grid);
+    if(ownEngine)root.appendChild(el('p','연결 원천: 케셰브 자체 엔진 · ALEPH 제공 SDP 사용 안 함 · XDR 수집·대응 및 AI는 이번 연결과 별도입니다.','overview-note'));
     if (freshSdp) root.appendChild(el('p', 'SDP 연결 근거 조회 시각: ' + new Intl.DateTimeFormat('ko-KR', {timeZone: 'Asia/Seoul', hour12: false,
       month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'}).format(new Date(sdp.checkedAt)) + ' KST · 조회 당시 상태', 'overview-note'));
-    const links = el('div', undefined, 'row overview-links');
-    for (const [key, label] of [['openPc', 'PC 상태 보기'], ['openConnections', '연결과 기록 보기'], ['openRecords', '보안 기록 보기']]) {
-      const button = el('button', label, 'btn'); button.setAttribute('type', 'button'); button.setAttribute('data-focus-key', key);
-      if (typeof actions[key] === 'function') button.addEventListener('click', () => actions[key]());
-      else {button.disabled = true; button.setAttribute('title', '이 실행 환경은 학생 바로가기 연결을 지원하지 않습니다. 제공 메뉴를 사용하세요.');}
-      links.appendChild(button);
-    }
     if (pcStatus || connectionStatus) {
-      root.appendChild(el('h3', '실제 PC 관측 정보', 'observation-heading'));
-      root.appendChild(renderPcStatusView({...pcStatus, compact: true, sidePanel: renderWindowsEventSummary(connectionStatus)}));
+      root.appendChild(el('h3', '리소스 추이와 Windows 기록', 'observation-heading'));
+      root.appendChild(flattenStudentPanels(renderPcStatusView({...pcStatus, compact: true, sidePanel: renderWindowsEventSummary(connectionStatus)})));
     }
-    root.appendChild(links);
+    const recent = el('section',undefined,'overview-recent');
+    recent.appendChild(el('h3','최근 보안 기록'));
+    const records = events?.status === 'ok' && Array.isArray(events.data) ? events.data : null;
+    if(records && records.length) {
+      recent.appendChild(el('p',(demo?'예제 기록 · 실제 연결 아님 · ':'현재 조회 응답 · ') + '받은 기록 ' + records.length + '건 중 최근 순서 최대 4건','overview-note'));
+      const list = el('ol',undefined,'overview-event-list');
+      for(const event of [...records].sort((a,b)=>(Date.parse(b.at)||0)-(Date.parse(a.at)||0)).slice(0,4)) {
+        const item = el('li'); item.appendChild(el('span',time(event.at),'overview-event-time'));
+        item.appendChild(el('strong',typeof event.summary==='string'?event.summary:'기록 요약 확인 불가'));
+        item.appendChild(el('span','앱: '+(typeof event.appId==='string'?event.appId:'확인 불가')+' · 사건 ID: '+(typeof event.id==='string'?event.id:'확인 불가'),'overview-event-source'));list.appendChild(item);
+      }
+      recent.appendChild(list);
+    } else recent.appendChild(el('p',events?.status==='loading'?'보안 기록 조회 중 · 이전 응답을 새 결과로 표시하지 않습니다.'
+      : records?'받은 보안 기록이 없습니다. 탐지나 대응 성공을 뜻하지 않습니다.'
+      : '보안 기록을 확인할 연결이 없습니다. 아래 기존 보안 도구에서 상세 상태를 확인하세요.','overview-note'));
+    root.appendChild(recent);
     root.appendChild(el('p', 'PC 상태·네트워크·방화벽·Windows 기록은 관측 근거이며 방어 성공 판정과 구분합니다.', 'overview-note'));
-    return root;
+    const page = el('div');
+    page.appendChild(renderCore(el));
+    const previous = el('details', undefined, 'defense-detail');
+    previous.setAttribute('data-preserve-key', 'previous-observations');
+    const previousTitle = el('summary', '기존 PC·Windows 관측과 보안 기록 보기');
+    previousTitle.setAttribute('data-focus-key', 'previous-observations'); previous.appendChild(previousTitle);
+    previous.appendChild(root); page.appendChild(previous);
+    return page;
   };
   // AI 입력은 제공 UI가 가린 값을 받으며, 알 수 없는 원문 오류는 다시 노출하지 않습니다.
   const safeAiText = (text, limit = 500) => typeof text === 'string' && text.trim().length > 0
@@ -101,10 +346,10 @@ export function createStudentView({actions = {}, capabilities = {}} = {}) {
       return overview(resource);
     },
     renderConnectionStatus(resource) {
-      return renderConnectionStatusView(resource);
+      return flattenStudentPanels(renderConnectionStatusView(resource));
     },
     renderPcStatus(resource) {
-      return renderPcStatusView(resource);
+      return flattenStudentPanels(renderPcStatusView(resource));
     },
     renderIdentity({ me, devices, sessions }) {
       // 매번 새 DOM을 반환하여 이전 신원의 표시를 재사용하지 않습니다.
@@ -336,6 +581,7 @@ export function createStudentView({actions = {}, capabilities = {}} = {}) {
       return root;
     },
     renderStatus({ devices, sessions, notifications, diagnostics, mode }) {
+      publishCore('diagnostics', summarizeDiagnostics({diagnostics, notifications, mode}));
       // 새 입력마다 새 DOM을 만들어 이전 목록·오류·진단 결과를 재사용하지 않습니다.
       const root = document.createElement('div');
       const value = (input) => typeof input === 'string' && input.trim().length > 0 ? input : '확인 불가';
@@ -361,7 +607,7 @@ export function createStudentView({actions = {}, capabilities = {}} = {}) {
         if (code.includes('TIMEOUT') || code.includes('TIMED_OUT')) line(parent, `시간 초과(${code})`);
         if (code === 'CONTRACT_MISMATCH') line(parent, '확인 불가: 응답 형식이 일치하지 않습니다.');
         line(parent, diagnostic
-          ? '다시 시도는 제공 영역의 도움정보 불러오기 버튼을 직접 누르세요.'
+          ? '다시 시도는 도움정보 불러오기 버튼을 직접 누르세요.'
           : '다시 시도는 위쪽 다시 불러오기 버튼을 직접 누르세요.');
       };
       const stateText = (labels, raw) => {
@@ -417,7 +663,7 @@ export function createStudentView({actions = {}, capabilities = {}} = {}) {
       } else if (diagnostics?.status === 'error') {
         showFailure(diagnostic, '진단 정보', diagnostics, true);
       } else if (diagnostics?.status === 'idle') {
-        line(diagnostic, '진단 정보는 아직 조회하지 않았습니다. 제공 영역의 도움정보 불러오기 버튼을 직접 누르세요.');
+        line(diagnostic, '진단 정보는 아직 조회하지 않았습니다. 도움정보 불러오기 버튼을 직접 누르세요.');
       } else if (diagnostics?.status === 'ok') {
         const data = diagnostics.data;
         // 전체 응답을 직렬화하지 않고 지정된 여섯 문자열 필드만 새 객체로 투영합니다.
@@ -431,15 +677,18 @@ export function createStudentView({actions = {}, capabilities = {}} = {}) {
         const fields = [data?.requestId, data?.component, data?.version, data?.checkedAt, data?.engine?.mode, data?.engine?.code];
         if (!fields.some((field) => typeof field === 'string' && field.trim().length > 0)) {
           line(diagnostic, '진단 정보가 없습니다. 확인 불가.');
-          line(diagnostic, '제공 영역의 도움정보 불러오기 버튼을 직접 눌러 다시 확인하세요.');
+          line(diagnostic, '도움정보 불러오기 버튼을 직접 눌러 다시 확인하세요.');
         } else {
           helpText = JSON.stringify(safe, null, 2);
           diagnostic.appendChild(element('pre', helpText));
         }
       } else {
-        line(diagnostic, '진단 정보 확인 불가. 제공 영역의 도움정보 불러오기 버튼을 직접 누르세요.');
+        line(diagnostic, '진단 정보 확인 불가. 도움정보 불러오기 버튼을 직접 누르세요.');
       }
       line(diagnostic, '도움 요청에 사용할 진단 정보 중 지정된 여섯 항목만 복사합니다.');
+      // The current host has one shared copy control next to diagnostics load.
+      // Older hosts keep the existing standalone copy fallback below.
+      if (capabilities.overviewSlot === true && document.getElementById('diag-copy')?.tagName?.toLowerCase() === 'button') return root;
       const copy = element('button', '도움정보 복사');
       copy.type = 'button';
       copy.disabled = helpText.length === 0;
@@ -459,6 +708,7 @@ export function createStudentView({actions = {}, capabilities = {}} = {}) {
       return root;
     },
     renderVulnerabilities({ status, mode, data, error }) {
+      publishCore('packages', summarizePackages({status, mode, data}));
       // 제공 호출부가 normalizeScan으로 검증한 설치 버전과 OSV 결과를 받습니다.
       // 호출마다 새 DOM을 만들어 조회 중·실패·재조회 시 이전 결과를 교체합니다.
       const root = document.createElement('div');
@@ -469,9 +719,9 @@ export function createStudentView({actions = {}, capabilities = {}} = {}) {
         return node;
       };
       const value = (input) => safeAiText(input) ? input : '확인 불가';
-      const retry = () => element('p', '다시 조회하려면 제공 영역의 설치 패키지 조회 버튼을 직접 누르세요. 자동으로 다시 조회하지 않습니다.');
+      const retry = () => element('p', '다시 조회하려면 설치 패키지 조회 버튼을 직접 누르세요. 자동으로 다시 조회하지 않습니다.');
       if (mode === 'demo') element('p', '예제 자료 · 실제 설치 패키지 조회 결과가 아닙니다.');
-      if (mode === 'disconnected') element('p', '연결 없음(disconnected)');
+      if (mode === 'disconnected') element('p', '보안 엔진 연결 없음(disconnected) · 설치 패키지의 OSV 공개 조회 결과는 아래에서 별도로 확인합니다.');
       if (mode === 'unknown') element('p', '연결 상태 확인 불가(unknown)');
       if (status === 'idle') {
         element('p', '조회 전(idle) · 아직 설치 패키지를 조회하지 않았습니다.');
@@ -554,6 +804,7 @@ export function createStudentView({actions = {}, capabilities = {}} = {}) {
       return root;
     },
     renderAiConnection({ status, mode, data, error, checkedAt, explanationAccepted }) {
+      publishCore('ai', summarizeAi({status, mode, data, checkedAt}));
       const root = document.createElement('div');
       const line = (text) => {
         const p = document.createElement('p');
@@ -586,7 +837,7 @@ export function createStudentView({actions = {}, capabilities = {}} = {}) {
       }
       // 이 입력의 explanationAccepted는 false이며 모델 목록 응답으로 설명 성공을 만들지 않습니다.
       line('이 화면은 연결 점검 결과입니다. 사건 설명은 아직 실행하지 않았습니다.');
-      line('다시 점검하려면 제공 영역의 AI 연결 점검 버튼을 직접 누르세요. 자동으로 다시 점검하지 않습니다.');
+      line('다시 점검하려면 AI 연결 점검 버튼을 직접 누르세요. 자동으로 다시 점검하지 않습니다.');
       return root;
     },
     renderExplanation({ event, explanation, checkedAt }) {
@@ -775,16 +1026,16 @@ export function createStudentView({actions = {}, capabilities = {}} = {}) {
       }
       if (currentStatus === 'prepared') {
         line(`사람 확인 기한: ${present(confirmationExpiresAt) ? confirmationExpiresAt : '확인 불가'}`);
-        line('실제 대상·대상 세대·확인 기한을 읽고 제공 화면의 사람 확인 버튼을 직접 눌러야 합니다. 아직 실행되지 않았습니다.');
+        line('실제 대상·대상 세대·확인 기한을 읽고 사람 확인 버튼을 직접 눌러야 합니다. 아직 실행되지 않았습니다.');
       } else if (currentStatus === 'succeeded') {
         line(`관측 시각: ${present(observation.observedAt) ? observation.observedAt : '확인 불가'}`);
         line('effectApplied: true');
         if (!present(receipt?.receiptId)) line('접수 기록 ID(receiptId): 확인 불가');
       } else if (currentStatus === 'unknown') {
         line('성공 여부와 효과 유무를 판단할 수 없습니다. 효과 없음으로도 단정하지 마세요.');
-        line('재실행하지 말고 제공 화면의 결과만 재조회하는 버튼을 직접 눌러 현재 결과를 확인하세요.');
+        line('재실행하지 말고 결과만 재조회하는 버튼을 직접 눌러 현재 결과를 확인하세요.');
       } else if (currentStatus === 'expired') {
-        line('확인 기한이 지났으므로 제공 화면에서 조치를 다시 준비하고 실제 대상을 확인하세요.');
+        line('확인 기한이 지났으므로 조치 화면에서 조치를 다시 준비하고 실제 대상을 확인하세요.');
       }
       if (['denied', 'failed', 'error'].includes(currentStatus) && safeAiText(message, 1000)) line(message);
       if (['denied', 'failed', 'unknown', 'error', 'expired'].includes(currentStatus) && error) {
@@ -797,9 +1048,9 @@ export function createStudentView({actions = {}, capabilities = {}} = {}) {
         line(`오류 코드: ${code}`);
         line(`오류 메시지: ${codes.has(error.code) && safeAiText(error.message) ? error.message : '조치 요청 결과를 확인할 수 없습니다.'}`);
       } else if (currentStatus === 'error') {
-        line('조치 요청이 처리되지 않았습니다. 제공 화면의 현재 오류 안내를 확인하세요.');
+        line('조치 요청이 처리되지 않았습니다. 현재 오류 안내를 확인하세요.');
       }
-      line('조치 버튼과 사람 확인은 제공 화면을 사용하세요. 이 학생 영역은 요청을 보내거나 자동으로 다시 실행하지 않습니다.');
+      line('조치 화면에서 대상과 내용을 확인하세요. 요청을 자동으로 다시 실행하지 않습니다.');
       line('조치 화면 취소는 이미 서버에 전달된 조치의 효과를 되돌리는 기능이 아닙니다.');
       return root;
     },

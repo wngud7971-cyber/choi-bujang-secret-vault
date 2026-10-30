@@ -14,6 +14,8 @@ $script:rootPath = $null
 $script:mutex = $null
 $script:mutexHeld = $false
 $script:ownerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+# 10-26: 실패 위치(진단용). 고정 코드로만 바깥에 나간다.
+$script:phase = 'input'
 
 function Fail([string]$code) { throw $code }
 function Exact($value, [string[]]$keys) {
@@ -36,6 +38,21 @@ function ReadLineBounded([int]$limit) {
     [void]$builder.Append([char]$v)
   }
   return $builder.ToString()
+}
+# 백신 실시간 검사 등이 방금 만든 파일을 잠깐 잡는 경우(공유·잠금 위반)에만 짧게 다시 시도한다. 다른 오류는 그대로 던진다.
+function IsLockViolation($e) {
+  for ($x=$e; $null -ne $x; $x=$x.InnerException) { if ($x.HResult -eq -2147024864 -or $x.HResult -eq -2147024863) { return $true } }
+  return $false
+}
+function WithLockRetry([scriptblock]$work) {
+  for ($attempt=1; ; $attempt++) {
+    # 매 시도 직전에 마감시간을 확인한다(대기 중 마감이 지나면 다음 작업을 하지 않는다).
+    Alive
+    try { return (& $work) } catch {
+      if ($attempt -ge 8 -or !(IsLockViolation $_.Exception)) { throw }
+      [Threading.Thread]::Sleep(250)
+    }
+  }
 }
 function Emit($v) { [Console]::Out.WriteLine((Json $v)); [Console]::Out.Flush() }
 function Alive {
@@ -74,6 +91,7 @@ try {
   if ($request.action -ceq 'save') { ValidateCredential $request.credential }
   if ($request.action -ceq 'remove' -and $request.credentialFingerprint -cnotmatch '^[a-f0-9]{64}$') { Fail 'ALEKOV_VAULT_INPUT_INVALID' }
 
+  $script:phase = 'compile'
   Add-Type -TypeDefinition @'
 using System;
 using System.IO;
@@ -109,6 +127,7 @@ public static class AlekovVaultNative {
 }
 '@
   [void][Reflection.Assembly]::LoadWithPartialName('System.Security')
+  $script:phase = 'lock'
   $script:rootPath = [IO.Path]::GetFullPath([string]$request.vaultRoot)
   if ($rootPath -cnotmatch '^[A-Za-z]:\\' -or $rootPath.Substring(2).Contains(':') -or ![IO.Directory]::Exists($rootPath) -or
       $rootPath.TrimEnd('\') -ceq [IO.Path]::GetPathRoot($rootPath).TrimEnd('\')) { Fail 'ALEKOV_VAULT_PATH_UNSAFE' }
@@ -127,7 +146,8 @@ public static class AlekovVaultNative {
   if (!$mutexHeld) { Fail 'ALEKOV_VAULT_BUSY' }
 
   function AssertAcl([string]$p) {
-    $acl = Get-Acl -LiteralPath $p
+    # Get-Acl 은 cmdlet 모듈을 자동 로드해야 해서, 이 도우미의 축소된 실행 환경에서는 일부 PC에서 실패한다(registry 도우미는 10-21 a38b857 에서 같은 방식으로 고침).
+    $acl = if (([IO.File]::GetAttributes($p) -band [IO.FileAttributes]::Directory) -ne 0) { [IO.Directory]::GetAccessControl($p) } else { [IO.File]::GetAccessControl($p) }
     if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -cne $ownerSid.Value -or !$acl.AreAccessRulesProtected) { Fail 'ALEKOV_VAULT_OWNER_MISMATCH' }
     $rules = @($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
     if ($rules.Count -ne 1 -or $rules[0].IdentityReference.Value -cne $ownerSid.Value -or $rules[0].AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
@@ -138,7 +158,9 @@ public static class AlekovVaultNative {
     $acl.SetOwner($ownerSid); $acl.SetAccessRuleProtection($true,$false)
     if ($directory) { $rule = New-Object Security.AccessControl.FileSystemAccessRule($ownerSid,'FullControl','ContainerInherit, ObjectInherit','None','Allow') }
     else { $rule = New-Object Security.AccessControl.FileSystemAccessRule($ownerSid,'FullControl','Allow') }
-    $acl.AddAccessRule($rule); Set-Acl -LiteralPath $p -AclObject $acl
+    $acl.AddAccessRule($rule)
+    if ($directory) { ([IO.DirectoryInfo]::new($p)).SetAccessControl($acl) }
+    else { ([IO.FileInfo]::new($p)).SetAccessControl($acl) }
     AssertAcl $p
   }
   function OpenOwned([string]$p) {
@@ -156,10 +178,11 @@ public static class AlekovVaultNative {
     $stream = [IO.File]::Open($p,[IO.FileMode]::CreateNew,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
     try { SetPrivateAcl $p $false; $stream.Write($bytes,0,$bytes.Length); $stream.Flush($true); [void][AlekovVaultNative]::FileIdentity($stream) } finally { $stream.Dispose() }
   }
+  $script:phase = 'marker'
   $markerPath = [IO.Path]::Combine($rootPath,'.alekov-owner.json')
   if (![IO.File]::Exists($markerPath)) {
     # Adoption is limited to an existing, empty directory owned by the execution user.
-    $rootAcl=Get-Acl -LiteralPath $rootPath
+    $rootAcl=[IO.Directory]::GetAccessControl($rootPath)
     if ($rootAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value -cne $ownerSid.Value -or [IO.Directory]::GetFileSystemEntries($rootPath).Length -ne 0) { Fail 'ALEKOV_VAULT_OWNER_MISMATCH' }
     SetPrivateAcl $rootPath $true
     $marker = [ordered]@{schema='alekov.app-vault.owner.v1';appId='aleph-on';audience='on-client';ownerSid=$ownerSid.Value;vaultId=[Guid]::NewGuid().ToString('D')}
@@ -192,12 +215,15 @@ public static class AlekovVaultNative {
   elseif ([IO.Directory]::Exists($recordPath)) { Fail 'ALEKOV_VAULT_PATH_UNSAFE' }
   if ($request.action -ceq 'remove' -and $null -ne $previous -and $previous.fingerprint -cne $request.credentialFingerprint) { Fail 'ALEKOV_VAULT_COMPARE_FAILED' }
   if ($request.action -ceq 'save') {
+    $script:phase = 'encrypt'
     $clear=Utf8 (Json $request.credential)
     try { $encrypted=[Security.Cryptography.ProtectedData]::Protect($clear,$entropy,[Security.Cryptography.DataProtectionScope]::CurrentUser) } finally { [Array]::Clear($clear,0,$clear.Length) }
     $newRecord=[ordered]@{schema='alekov.app-vault.record.v1';vaultId=$marker.vaultId;contextFingerprint=$request.contextFingerprint;credentialFingerprint=(Hash (Utf8 $request.credential.token));protected=[Convert]::ToBase64String($encrypted)}
     $script:temporary=[IO.Path]::Combine($rootPath,'.alekov-'+[Guid]::NewGuid().ToString('N')+'.tmp')
+    $script:phase = 'write'
     WriteNew $temporary (Utf8 (Json $newRecord))
-    $prepared=ReadRecord $temporary $true
+    $script:phase = 'reopen'
+    $prepared=WithLockRetry { ReadRecord $temporary $true }
     $script:temporaryIdentity=$prepared.identity; $script:temporaryDigest=$prepared.digest
   }
   Alive; Emit @{stage='ready';nonce=$request.nonce}
@@ -212,9 +238,11 @@ public static class AlekovVaultNative {
   AssertAcl $rootPath; [void][AlekovVaultNative]::FileIdentity($markerStream); Alive
   if ($request.action -ceq 'save') {
     ValidateCredential $request.credential
-    $tempRecord=ReadRecord $temporary $true
+    $script:phase = 'commit'
+    $tempRecord=WithLockRetry { ReadRecord $temporary $true }
     if ($tempRecord.fingerprint -cne $newRecord.credentialFingerprint) { Fail 'ALEKOV_VAULT_COMPARE_FAILED' }
-    if ($null -eq $previous) { [IO.File]::Move($temporary,$recordPath); $script:temporary=$null }
+    Alive
+    if ($null -eq $previous) { WithLockRetry { [IO.File]::Move($temporary,$recordPath) }; $script:temporary=$null }
     else {
       $backup=[IO.Path]::Combine($rootPath,'.alekov-'+[Guid]::NewGuid().ToString('N')+'.bak')
       [IO.File]::Replace($temporary,$recordPath,$backup,$false)
@@ -223,7 +251,8 @@ public static class AlekovVaultNative {
       $replaced=ReadRecord $backup $false
       if ($replaced.identity -cne $previous.identity -or $replaced.digest -cne $previous.digest) { Fail 'ALEKOV_VAULT_OUTCOME_UNKNOWN' }
     }
-    $saved=ReadRecord $recordPath $true
+    $script:phase = 'verify'
+    $saved=WithLockRetry { ReadRecord $recordPath $true }
     if ($saved.identity -cne $tempRecord.identity -or $saved.digest -cne $tempRecord.digest -or $saved.fingerprint -cne $newRecord.credentialFingerprint) { Fail 'ALEKOV_VAULT_OUTCOME_UNKNOWN' }
     if ($null -ne $previous) { [AlekovVaultNative]::DeleteExact($backup,$replaced.identity,$replaced.digest) }
     $result=@{connectionId=$request.connectionId;credentialFingerprint=$newRecord.credentialFingerprint;contextFingerprint=$request.contextFingerprint;persisted=$true}
@@ -240,7 +269,17 @@ public static class AlekovVaultNative {
   Emit @{ok=$true;result=$result}
 } catch {
   $code='ALEKOV_VAULT_STORAGE_FAILED'
-  if ($_.Exception.Message -cmatch '^ALEKOV_VAULT_[A-Z_]+$') { $code=$_.Exception.Message }
+  # C# 도우미가 던진 고정 코드는 PowerShell 이 한 번 감싸므로 안쪽 예외까지 본다.
+  for ($x=$_.Exception; $null -ne $x; $x=$x.InnerException) { if ($x.Message -cmatch '^ALEKOV_VAULT_[A-Z_]+$') { $code=$x.Message; break } }
+  if ($code -ceq 'ALEKOV_VAULT_STORAGE_FAILED') {
+    # 원문 메시지·경로는 내보내지 않고 예외 종류만 고정 코드로 바꾼다.
+    for ($x=$_.Exception; $null -ne $x; $x=$x.InnerException) {
+      if ($x -is [Security.Cryptography.CryptographicException]) { $code='ALEKOV_VAULT_DPAPI_FAILED'; break }
+      if ($x.HResult -eq -2147024864 -or $x.HResult -eq -2147024863) { $code='ALEKOV_VAULT_FILE_LOCKED'; break }
+      if ($x -is [UnauthorizedAccessException] -or $x.HResult -eq -2147024891) { $code='ALEKOV_VAULT_ACCESS_DENIED'; break }
+    }
+    if ($code -ceq 'ALEKOV_VAULT_STORAGE_FAILED' -and $script:phase -ceq 'compile') { $code='ALEKOV_VAULT_COMPILE_BLOCKED' }
+  }
   Emit @{ok=$false;code=$code}
   exit 1
 } finally {

@@ -3,11 +3,12 @@ import {randomBytes,randomUUID,createHash} from 'node:crypto';
 import {types} from 'node:util';
 import {ALEPH_PORTAL_ORIGIN,CLCO_GATEWAY_ORIGIN} from '../ai/connection.mjs';
 
-const producers=new WeakMap(),operations=new WeakMap();
+const producers=new WeakMap(),operations=new WeakMap(),finishProofs=new WeakMap();
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const CANONICAL=['canonicalStudentId','alephUserId','siteId','identityVersion'];
 const CODES=new Set(['INPUT_INVALID','DISABLED','CANCELLED','EXPIRED','TIMEOUT','RESPONSE_INVALID','CONTEXT_CHANGED','UNVERIFIED','OUTCOME_UNKNOWN','BUSY']);
-export const nativeFault=code=>Object.assign(new Error('NATIVE_HOST_'+code),{code:'NATIVE_HOST_'+code});
+const SESSION_DETAILS=new Set(['PROOF_EXPIRED','SESSION_METADATA_INVALID','SESSION_IDENTITY_CHANGED','SESSION_INSTANCE_CHANGED','SESSION_EXPIRY_CHANGED','GENERATION_CHANGED']);
+export const nativeFault=(code,detail)=>Object.assign(new Error('NATIVE_HOST_'+code),{code:'NATIVE_HOST_'+code,...(SESSION_DETAILS.has(detail)?{detailCode:'NATIVE_HOST_'+detail}:{})});
 export function nativeOwn(value,keys,optional=[]){
   if(!value||typeof value!=='object'||types.isProxy(value)||![Object.prototype,null].includes(Object.getPrototypeOf(value)))throw nativeFault('INPUT_INVALID');
   const descriptors=Object.getOwnPropertyDescriptors(value),names=Reflect.ownKeys(descriptors);
@@ -34,9 +35,9 @@ export function createNativeLogin(options={}){
   function serializedCurrent(work){const result=currentTail.then(work);currentTail=result.catch(()=>{});return result;}
   const time=()=>{const at=clock();if(!Number.isSafeInteger(at)||at<=0)throw nativeFault('UNVERIFIED');return at;};
   function invalidate(){s.generation++;for(const c of s.requests)c.abort();for(const op of s.operations)op.controller.abort();s.operations.clear();s.session=null;}
-  function active(g,signal){if(!enabled||s.closed)throw nativeFault('DISABLED');if(g!==s.generation)throw nativeFault('CONTEXT_CHANGED');if(signal?.aborted)throw nativeFault('CANCELLED');}
+  function active(g,signal){if(!enabled||s.closed)throw nativeFault('DISABLED');if(g!==s.generation)throw nativeFault('CONTEXT_CHANGED','GENERATION_CHANGED');if(signal?.aborted)throw nativeFault('CANCELLED');}
   async function request(kind,body,g,signal,prefix='/api/apps/aleph-on/native-login/'){
-    active(g,signal);const controller=new AbortController(),deadline=time()+timeout,mono=performance.now()+timeout;const stop=()=>controller.abort();
+    active(g,signal);const controller=new AbortController(),startedWall=time(),startedMono=performance.now(),deadline=startedWall+timeout,mono=startedMono+timeout;const stop=()=>controller.abort();
     if(signal?.aborted)stop();else signal?.addEventListener('abort',stop,{once:true});s.requests.add(controller);const timer=setTimeout(stop,timeout);
     const alive=()=>{active(g,signal);if(time()>=deadline||performance.now()>=mono)throw nativeFault('TIMEOUT');if(controller.signal.aborted)throw nativeFault('CANCELLED');};
     let rejectAbort;const aborted=new Promise((_,reject)=>{rejectAbort=()=>reject(nativeFault(signal?.aborted?'CANCELLED':'TIMEOUT'));controller.signal.addEventListener('abort',rejectAbort,{once:true});});aborted.catch(()=>{});
@@ -47,19 +48,28 @@ export function createNativeLogin(options={}){
         try{while(true){const p=await reader.read();alive();if(p.done)break;size+=p.value.byteLength;if(size>8192)throw nativeFault('RESPONSE_INVALID');chunks.push(Buffer.from(p.value));}}finally{await reader.cancel().catch(()=>{});reader.releaseLock();}
         let parsed;try{parsed=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks)));}catch{throw nativeFault('RESPONSE_INVALID');}
         alive();if(r.status!==200&&r.status!==201&&r.status!==202)throw nativeFault(r.status===410?'EXPIRED':r.status===409?'CONTEXT_CHANGED':'UNVERIFIED');
-        const envelope=nativeOwn(parsed,['ok','data']);if(envelope.ok!==true)throw nativeFault('RESPONSE_INVALID');return {status:r.status,data:envelope.data};})();work.catch(()=>{});
+        const envelope=nativeOwn(parsed,['ok','data']);if(envelope.ok!==true)throw nativeFault('RESPONSE_INVALID');return {status:r.status,data:envelope.data,finishAnchor:Object.freeze({wall:startedWall,mono:startedMono,receivedWall:time(),receivedMono:performance.now()})};})();work.catch(()=>{});
       return await Promise.race([work,aborted]);
     }finally{clearTimeout(timer);signal?.removeEventListener('abort',stop);controller.signal.removeEventListener('abort',rejectAbort);s.requests.delete(controller);controller.abort();}
   }
-  function captureSession(raw,previous){const d=nativeOwn(raw,[...CANONICAL,'nativeSessionId','expiresAtMs','proofUntilMs']),c=canonical(Object.fromEntries(CANONICAL.map(k=>[k,d[k]]))),at=time();
-    if(!UUID.test(d.nativeSessionId)||!Number.isSafeInteger(d.expiresAtMs)||!Number.isSafeInteger(d.proofUntilMs)||d.proofUntilMs<=at||d.proofUntilMs>d.expiresAtMs||previous&&(!same(c,previous.canonical)||previous.instance!==d.nativeSessionId||previous.expires!==d.expiresAtMs))throw nativeFault('CONTEXT_CHANGED');
-    return {canonical:c,instance:d.nativeSessionId,expires:d.expiresAtMs,proof:d.proofUntilMs,mono:performance.now()+Math.min(d.expiresAtMs,d.proofUntilMs)-at};
+  function captureSession(raw,previous,anchor){const d=nativeOwn(raw,[...CANONICAL,'nativeSessionId','expiresAtMs','proofUntilMs']),c=canonical(Object.fromEntries(CANONICAL.map(k=>[k,d[k]]))),at=time();
+    if(!UUID.test(d.nativeSessionId)||!Number.isSafeInteger(d.expiresAtMs)||!Number.isSafeInteger(d.proofUntilMs)||d.proofUntilMs>d.expiresAtMs)throw nativeFault('CONTEXT_CHANGED','SESSION_METADATA_INVALID');
+    if(d.proofUntilMs<=at)throw nativeFault('CONTEXT_CHANGED','PROOF_EXPIRED');
+    if(previous&&!same(c,previous.canonical))throw nativeFault('CONTEXT_CHANGED','SESSION_IDENTITY_CHANGED');
+    if(previous&&previous.instance!==d.nativeSessionId)throw nativeFault('CONTEXT_CHANGED','SESSION_INSTANCE_CHANGED');
+    if(previous&&previous.expires!==d.expiresAtMs)throw nativeFault('CONTEXT_CHANGED','SESSION_EXPIRY_CHANGED');
+    const mono=performance.now()+Math.min(d.expiresAtMs,d.proofUntilMs)-at;
+    // Finish alone keeps request-start bounds. Existing native/receipt semantics
+    // retain their current fields; no session/native secret leaves this closure.
+    const finishExpiresMono=Math.min(anchor.mono+d.expiresAtMs-anchor.wall,previous?.finishExpiresMono??Infinity),finishProofMono=Math.min(mono,anchor.mono+d.proofUntilMs-anchor.wall,finishExpiresMono);
+    return {canonical:c,instance:d.nativeSessionId,expires:d.expiresAtMs,proof:d.proofUntilMs,mono,finishExpiresMono,finishProofMono,
+      finishClockValid:anchor.receivedWall>=anchor.wall&&anchor.receivedMono>=anchor.mono};
   }
   function refresh(g,signal){active(g,signal);return serializedCurrent(()=>refreshCurrent(g,signal));}
   async function refreshCurrent(g,signal){active(g,signal);const old=s.session;if(!old)throw nativeFault('UNVERIFIED');
     if(time()>=old.expires)throw nativeFault('EXPIRED');const n=await request('nonce',{handle:old.handle,verifier:old.verifier,action:'current'},g,signal);
     const v=nativeOwn(n.data,['nonce','expiresAtMs']);if(typeof v.nonce!=='string'||!Number.isSafeInteger(v.expiresAtMs)||v.expiresAtMs<=time())throw nativeFault('RESPONSE_INVALID');
-    const response=await request('current',{handle:old.handle,verifier:old.verifier,nonce:v.nonce},g,signal);const fresh=captureSession(response.data,old);active(g,signal);
+    const response=await request('current',{handle:old.handle,verifier:old.verifier,nonce:v.nonce},g,signal);const fresh=captureSession(response.data,old,response.finishAnchor);active(g,signal);
     s.session={...old,...fresh};s.state='connected';return s.session;
   }
   const publicView=()=>Object.freeze({state:s.state,expiresAtMs:s.session?.expires??s.ticket?.expires??null,approvalUrl:s.ticket?.url??null,confirmation:s.ticket?.confirmation??null});
@@ -76,14 +86,23 @@ export function createNativeLogin(options={}){
     async redeem(input={},call={}){nativeOwn(input,[]);const {signal}=nativeOwn(call,[],['signal']);nativeSignal(signal);const g=s.generation,t=s.ticket;active(g,signal);if(!t||!t.expires)throw nativeFault('UNVERIFIED');if(time()>=t.expires)throw nativeFault('EXPIRED');
       try{const r=await request('redeem',{deviceId:t.deviceId,verifier:t.verifier},g,signal);if(r.status===202){const d=nativeOwn(r.data,['state']);if(d.state!=='pending')throw nativeFault('RESPONSE_INVALID');return publicView();}
         const d=nativeOwn(r.data,[...CANONICAL,'nativeSessionId','expiresAtMs','proofUntilMs','handle']);if(typeof d.handle!=='string'||!/^nl1_[A-Za-z0-9_-]{43}$/.test(d.handle))throw nativeFault('RESPONSE_INVALID');
-        const session=captureSession(Object.fromEntries([...CANONICAL,'nativeSessionId','expiresAtMs','proofUntilMs'].map(k=>[k,d[k]])));active(g,signal);s.session={...session,handle:d.handle,verifier:t.verifier};s.ticket=null;s.state='connected';return publicView();
+        const session=captureSession(Object.fromEntries([...CANONICAL,'nativeSessionId','expiresAtMs','proofUntilMs'].map(k=>[k,d[k]])),undefined,r.finishAnchor);active(g,signal);s.session={...session,handle:d.handle,verifier:t.verifier};s.ticket=null;s.state='connected';return publicView();
       }catch(e){if(g===s.generation)s.state='unknown';throw e;}
     },
     async current(input={},call={}){nativeOwn(input,[]);const {signal}=nativeOwn(call,[],['signal']);nativeSignal(signal);await refresh(s.generation,signal);return publicView();},
     status(input={}){nativeOwn(input,[]);if(!enabled||s.closed)throw nativeFault('DISABLED');return publicView();},
     async cancel(input={},call={}){nativeOwn(input,[]);const {signal}=nativeOwn(call,[],['signal']);nativeSignal(signal);const old=s.session,t=s.ticket;invalidate();s.state='cancelled';const g=s.generation;
       try{await serializedCurrent(async()=>{active(g,signal);if(t)await request('cancel',{deviceId:t.deviceId,verifier:t.verifier},g,signal);else if(old){const n=await request('nonce',{handle:old.handle,verifier:old.verifier,action:'cancel'},g,signal);const d=nativeOwn(n.data,['nonce','expiresAtMs']);await request('cancel',{handle:old.handle,verifier:old.verifier,nonce:d.nonce},g,signal);}active(g,signal);s.ticket=null;});return publicView();}
-      catch(e){if(g===s.generation)s.state='unknown';throw e;}
+      catch(e){
+        // A confirmed gateway expiry makes this pending ticket unusable. Release only
+        // this generation's exact in-memory ticket; never treat a session cancel 410,
+        // a lost response, or another failure as cancellation success.
+        if(g===s.generation){
+          if(t&&!old&&s.ticket===t&&e?.code==='NATIVE_HOST_EXPIRED'){s.ticket=null;s.state='expired';return publicView();}
+          s.state='unknown';
+        }
+        throw e;
+      }
     },
     close(){invalidate();s.closed=true;s.state='cancelled';s.ticket=null;}
   });
@@ -123,8 +142,29 @@ export async function openNativeOperation(producer,call={}){
 function operationLifetime(cap){const op=operations.get(cap);if(!op||op.closed)throw nativeFault('UNVERIFIED');op.p.active(op.g,op.controller.signal);
   if(op.p.time()>=op.deadline||performance.now()>=op.mono||op.p.time()>=op.session.expires)throw nativeFault('EXPIRED');return op;}
 export function assertNativeOperation(cap){const op=operationLifetime(cap);
-  if(op.p.time()>=op.session.proof||performance.now()>=op.session.mono)throw nativeFault('EXPIRED');return Object.freeze({...op.session.canonical});}
-export async function refreshNativeOperation(cap){const op=operationLifetime(cap);const fresh=await op.p.refresh(op.g,op.controller.signal);
-  if(fresh.instance!==op.session.instance||!same(fresh.canonical,op.session.canonical)||fresh.expires!==op.session.expires)throw nativeFault('CONTEXT_CHANGED');op.session=fresh;return assertNativeOperation(cap);}
+  if(op.p.time()>=op.session.proof||performance.now()>=op.session.mono)throw nativeFault('EXPIRED','PROOF_EXPIRED');return Object.freeze({...op.session.canonical});}
+export async function refreshNativeOperation(cap){const op=operationLifetime(cap);try{const fresh=await op.p.refresh(op.g,op.controller.signal);
+  if(fresh.instance!==op.session.instance||!same(fresh.canonical,op.session.canonical)||fresh.expires!==op.session.expires)throw nativeFault('CONTEXT_CHANGED');op.session=fresh;if(!fresh.finishClockValid||performance.now()>=fresh.finishProofMono)op.finishInvalid=true;return assertNativeOperation(cap);}catch(e){op.finishInvalid=true;throw e;}}
 export function nativeOperationBinding(cap){const op=operationLifetime(cap);return Object.freeze({canonical:op.session.canonical,nativeInstance:op.session.instance,generation:op.g,deadline:Math.min(op.deadline,op.session.expires),signal:op.controller.signal});}
+// Private finish-only brand. No session handle, verifier, native instance or cap is returned.
+// Capture the original finite deadlines; refreshing the operation cannot extend this snapshot.
+export function captureNativeFinishProof(cap){
+  const op=operationLifetime(cap),identity=assertNativeOperation(cap),wall=op.p.time(),mono=performance.now();if(!op.session.finishClockValid||mono>=op.session.finishProofMono||mono>=op.session.finishExpiresMono)throw nativeFault('EXPIRED');if(op.finishInvalid)throw nativeFault('CONTEXT_CHANGED');
+  if(!Number.isSafeInteger(op.g)||op.g<0||!Number.isSafeInteger(op.g+1))throw nativeFault('UNVERIFIED');
+  const handle=Object.freeze(Object.create(null)),record={cap,op,identity,instance:op.session.instance,
+    proofMono:Math.min(op.session.mono,op.session.finishProofMono),operationMono:Math.min(op.mono,op.session.finishExpiresMono),proofUntil:Math.min(op.session.proof,op.session.expires),operationUntil:Math.min(op.deadline,op.session.expires),
+    lastWall:wall,lastMono:mono,closed:false,sessionGeneration:op.g+1,
+    sessionCommitment:createHash('sha256').update('ALEPH_FINISH_NATIVE_SESSION_V1\n'+JSON.stringify([op.session.instance,op.g,identity])).digest('hex')};
+  finishProofs.set(handle,record);readNativeFinishProof(handle);return handle;
+}
+export function readNativeFinishProof(handle){
+  const r=finishProofs.get(handle);if(!r||r.closed)throw nativeFault('UNVERIFIED');
+  try{const op=operationLifetime(r.cap),identity=assertNativeOperation(r.cap),wall=op.p.time(),mono=performance.now();
+    if(op.finishInvalid)throw nativeFault('CONTEXT_CHANGED');if(op!==r.op||op.session.instance!==r.instance||!same(identity,r.identity)||wall<r.lastWall||mono<r.lastMono||mono>=r.proofMono||mono>=r.operationMono)throw nativeFault('EXPIRED');
+    // Wall rollback can never turn the original native monotonic remainder into a new TTL.
+    r.proofUntil=Math.min(r.proofUntil,wall+Math.floor(r.proofMono-mono));r.operationUntil=Math.min(r.operationUntil,wall+Math.floor(r.operationMono-mono));
+    if(wall>=r.proofUntil||wall>=r.operationUntil)throw nativeFault('EXPIRED');r.lastWall=wall;r.lastMono=mono;
+    return Object.freeze({identity:r.identity,checkpointAtMs:wall,nativeProofUntilMs:r.proofUntil,operationUntilMs:r.operationUntil,sessionGeneration:r.sessionGeneration,sessionCommitment:r.sessionCommitment});
+  }catch(e){r.closed=true;throw e;}
+}
 export function closeNativeOperation(cap){operations.get(cap)?.close();}

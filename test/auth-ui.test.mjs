@@ -1,3 +1,7 @@
+import {ephemeralTestValue} from './helpers/ephemeral-credentials.mjs';
+const credentialFixture1 = ephemeralTestValue();
+const credentialFixture2 = ephemeralTestValue();
+
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
@@ -8,8 +12,8 @@ const html = await readFile(new URL('../public/index.html', import.meta.url), 'u
 const moduleSource = html.match(/<script type="module" id="auth-script">([\s\S]*?)<\/script>/u)[1];
 assert.match(moduleSource, /import \{ createAccessGate \} from '\/access-state\.js';/u);
 const source = moduleSource.replace("import { createAccessGate } from '/access-state.js';", '');
-const sessionA = { user: { email: 'Test account A' }, access_token: 'TEST_ONLY_FIRST_TOKEN' };
-const sessionB = { user: { email: 'Test account B' }, access_token: 'TEST_ONLY_SECOND_TOKEN' };
+const sessionA = { user: { email: 'Test account A' }, access_token: credentialFixture1 };
+const sessionB = { user: { email: 'Test account B' }, access_token: credentialFixture2 };
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
 async function page(initialSession = null, autoApprove = true) {

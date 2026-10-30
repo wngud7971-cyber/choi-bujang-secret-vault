@@ -9,7 +9,9 @@ $held=New-Object Collections.Generic.List[IDisposable]
 $mutex=$null;$locked=$false;$pendingTemp=$null;$pendingIdentity=$null
 $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User
 $watch=[Diagnostics.Stopwatch]::StartNew()
-function Fail([string]$code){throw $code}
+$diagnosticCode='OTHER'
+$diagnosticCodes=@('NATIVE_HOST_INPUT_INVALID','NATIVE_HOST_OUTCOME_UNKNOWN','NATIVE_HOST_EXPIRED','NATIVE_HOST_PATH_UNSAFE','NATIVE_HOST_ACL_UNSAFE','NATIVE_HOST_OWNER_MISMATCH','NATIVE_HOST_BUSY','NATIVE_HOST_STORAGE_INVALID','NATIVE_HOST_CONTEXT_CHANGED','NATIVE_HOST_COMPARE_FAILED','NATIVE_HOST_CAPACITY','NATIVE_HOST_TIMEOUT','NATIVE_HOST_DPAPI_FAILED')
+function Fail([string]$code){if($diagnosticCodes -ccontains $code){$script:diagnosticCode=$code};throw $code}
 function Exact($v,[string[]]$keys){if($null -eq $v -or $v -isnot [pscustomobject]){return $false};$names=@($v.PSObject.Properties.Name);return $names.Count -eq $keys.Count -and @($keys|Where-Object{$names -cnotcontains $_}).Count -eq 0}
 function Json($v){return ConvertTo-Json -InputObject $v -Depth 16 -Compress}
 function Utf8([string]$v){return ,([Text.Encoding]::UTF8.GetBytes($v))}
@@ -38,7 +40,7 @@ public static class AlekovRegistryNative {
   if($registry -ieq $vault -or $registry -ieq $project -or $registry.StartsWith($project+'\',[StringComparison]::OrdinalIgnoreCase) -or $vault.StartsWith($project+'\',[StringComparison]::OrdinalIgnoreCase)){Fail 'NATIVE_HOST_PATH_UNSAFE'}
   function HoldChain([string]$p){$chain=New-Object Collections.Generic.List[string];$d=New-Object IO.DirectoryInfo($p);while($null -ne $d){$chain.Add($d.FullName);$d=$d.Parent};$last=$null;for($i=$chain.Count-1;$i -ge 0;$i--){$last=[AlekovRegistryNative]::Hold($chain[$i]);$held.Add($last)};return [AlekovRegistryNative]::Identity($last,$true)}
   $registryIdentity=HoldChain $registry;$vaultIdentity=HoldChain $vault;$projectIdentity=HoldChain $project
-  function Acl([string]$p){$a=Get-Acl -LiteralPath $p;$rules=@($a.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]));if($a.GetOwner([Security.Principal.SecurityIdentifier]).Value -cne $sid.Value -or !$a.AreAccessRulesProtected -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Value -cne $sid.Value -or $rules[0].AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or $rules[0].FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl){Fail 'NATIVE_HOST_ACL_UNSAFE'}}
+  function Acl([string]$p){$a=if(([IO.File]::GetAttributes($p) -band [IO.FileAttributes]::Directory) -ne 0){[IO.Directory]::GetAccessControl($p)}else{[IO.File]::GetAccessControl($p)};$rules=@($a.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]));if($a.GetOwner([Security.Principal.SecurityIdentifier]).Value -cne $sid.Value -or !$a.AreAccessRulesProtected -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Value -cne $sid.Value -or $rules[0].AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or $rules[0].FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl){Fail 'NATIVE_HOST_ACL_UNSAFE'}}
   function PrivateAcl([string]$p,[bool]$directory){if($directory){$a=New-Object Security.AccessControl.DirectorySecurity;$r=New-Object Security.AccessControl.FileSystemAccessRule($sid,'FullControl','ContainerInherit, ObjectInherit','None','Allow')}else{$a=New-Object Security.AccessControl.FileSecurity;$r=New-Object Security.AccessControl.FileSystemAccessRule($sid,'FullControl','Allow')};$a.SetOwner($sid);$a.SetAccessRuleProtection($true,$false);$a.AddAccessRule($r);if($directory){[IO.Directory]::SetAccessControl($p,$a)}else{[IO.File]::SetAccessControl($p,$a)};Acl $p}
   $ma=New-Object Security.AccessControl.MutexSecurity;$ma.SetAccessRuleProtection($true,$false);$ma.AddAccessRule((New-Object Security.AccessControl.MutexAccessRule($sid,'FullControl','Allow')));$created=$false
   $mutex=New-Object Threading.Mutex($false,('Local\AlekovNativeRegistry_'+(Hash (Utf8 ($sid.Value+'|'+$registry.ToLowerInvariant())))),[ref]$created,$ma)
@@ -49,7 +51,7 @@ public static class AlekovRegistryNative {
   if($null -ne $request.configurationFile){$cf=$request.configurationFile;if(!(Exact $cf @('path','digest','identity')) -or !(Digest $cf.digest) -or $cf.path -isnot [string]){Fail 'NATIVE_HOST_INPUT_INVALID'}
     $cp=[IO.Path]::GetFullPath($cf.path);if($cp -cnotmatch '^[A-Za-z]:\\' -or $cp.Substring(2).Contains(':')){Fail 'NATIVE_HOST_PATH_UNSAFE'};[void](HoldChain ([IO.Path]::GetDirectoryName($cp)));$readConfig=ReadOwned $cp 8192;if($readConfig.digest -cne $cf.digest){Fail 'NATIVE_HOST_CONTEXT_CHANGED'}}
   if(![IO.File]::Exists($statePath)){
-    $a=Get-Acl -LiteralPath $registry;if($a.GetOwner([Security.Principal.SecurityIdentifier]).Value -cne $sid.Value -or [IO.Directory]::GetFileSystemEntries($registry).Length -ne 0){Fail 'NATIVE_HOST_OWNER_MISMATCH'};PrivateAcl $registry $true
+    $a=[IO.Directory]::GetAccessControl($registry);if($a.GetOwner([Security.Principal.SecurityIdentifier]).Value -cne $sid.Value -or [IO.Directory]::GetFileSystemEntries($registry).Length -ne 0){Fail 'NATIVE_HOST_OWNER_MISMATCH'};PrivateAcl $registry $true
     $initial=[ordered]@{schema='alekov.native-registry.v1';ownerSid=$sid.Value;registryIdentity=$registryIdentity;revision=1;projects=@();history=@();heads=@()};[void](WriteNew $statePath (Utf8 (Json $initial)))
   }
   Acl $registry;$record=ReadOwned $statePath 262144;$state=$record.value
@@ -112,5 +114,13 @@ public static class AlekovRegistryNative {
     $currentHead.revision=$state.revision+1;Persist
   }
   Alive;Emit @{stage='done';nonce=$request.nonce}
-}catch{Emit @{stage='error';code='NATIVE_HOST_REGISTRY_UNVERIFIED'};exit 1}
+}catch{
+  # C#의 고정 오류도 완전 일치로 확인한다. 임의 예외 문장·경로·SID는 출력하지 않는다.
+  $exception=$_.Exception
+  for($i=0;$i -lt 8 -and $null -ne $exception;$i++){
+    if($diagnosticCodes -ccontains $exception.Message){$diagnosticCode=$exception.Message;break}
+    $exception=$exception.InnerException
+  }
+  Emit @{stage='error';code='NATIVE_HOST_REGISTRY_UNVERIFIED';detailCode=$diagnosticCode};exit 1
+}
 finally{foreach($h in $held){$h.Dispose()};if($locked){$mutex.ReleaseMutex()};if($null -ne $mutex){$mutex.Dispose()}}

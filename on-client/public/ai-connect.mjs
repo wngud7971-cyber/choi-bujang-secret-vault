@@ -1,3 +1,14 @@
+export const CONNECT_STAGES=Object.freeze(['handleValidate','preRedeemContext','redeemReceive','postRedeemContext','credentialValidate','preSaveContext','vaultSave','saveAck','postSaveContext','finalContext','requestContext']);
+export const CONNECT_DETAIL_CODES=Object.freeze([
+  ...['PROOF_EXPIRED','SESSION_METADATA_INVALID','SESSION_IDENTITY_CHANGED','SESSION_INSTANCE_CHANGED','SESSION_EXPIRY_CHANGED','GENERATION_CHANGED'].map(v=>'NATIVE_HOST_'+v),
+  ...['CONTEXT_UNVERIFIED','CONTEXT_CHANGED','CANCELLED','UNAVAILABLE','TIMEOUT','OUTCOME_UNKNOWN','REDIRECT_BLOCKED','REJECTED','RESPONSE_INVALID','HANDLE_INVALID','EXPIRED','STORAGE_UNVERIFIED'].map(v=>'ALEKOV_CONNECT_'+v),
+  ...['INPUT_INVALID','DISABLED','CANCELLED','EXPIRED','TIMEOUT','RESPONSE_INVALID','CONTEXT_CHANGED','UNVERIFIED','OUTCOME_UNKNOWN','BUSY','REGISTRY_UNVERIFIED','PATH_UNSAFE','ACL_UNSAFE','ACL_MISMATCH','OWNER_MISMATCH','STORAGE_INVALID','COMPARE_FAILED','CAPACITY','DPAPI_FAILED'].map(v=>'NATIVE_HOST_'+v),
+  ...['CREDENTIAL_INVALID','EXPIRED','CONFIGURATION_INVALID','WINDOWS_REQUIRED','CONTEXT_UNVERIFIED','CONTEXT_CHANGED','INPUT_INVALID','CANCELLED','TIMEOUT','EXECUTION_FAILED','OUTCOME_UNKNOWN','PROTOCOL_INVALID','ACL_UNSAFE','BUSY','COMPARE_FAILED','OWNER_MISMATCH','PATH_UNSAFE','RECORD_INVALID','STORAGE_FAILED','DPAPI_FAILED','ACCESS_DENIED','FILE_LOCKED','COMPILE_BLOCKED'].map(v=>'ALEKOV_VAULT_'+v),
+  'OTHER',
+]);
+export const connectStage=value=>CONNECT_STAGES.includes(value)?value:null;
+export const connectDetail=value=>CONNECT_DETAIL_CODES.includes(value)?value:'OTHER';
+
 // Alekov 학생 AI 연결 — 브라우저 모듈(제공 공통 UI).
 // AI 앱 승인은 로컬 Alekov 서버의 POST /api/ai/connect/{start,finish,status,cancel} 네 경로만 쓴다.
 // 계정 연결 확인(native 로그인)은 파일 아래쪽의 별도 transport·controller 가 POST /api/native-login/* 다섯 경로만 쓴다.
@@ -22,21 +33,23 @@ const iso = (v) => typeof v === 'string' && Number.isFinite(Date.parse(v)) && ne
 
 // 학생에게 보이는 고정 안내. 서버가 보낸 임의 문장은 화면에 쓰지 않는다.
 export const CONNECT_MESSAGES = Object.freeze({
+  ALEKOV_CONNECT_REDIRECT_BLOCKED: '승인 확인 중 허용되지 않은 주소로 이동하려는 응답을 받아 중단했습니다. 문의용 확인정보를 담당자에게 전달하세요.',
+  ALEKOV_CONNECT_HANDLE_INVALID: '현재 연결 요청을 계속 진행할 수 없습니다. 「상태 다시 확인」으로 결과를 확인한 뒤 담당자에게 문의하세요.',
   ALEKOV_CONNECT_NOT_MOUNTED: '이 앱 버전에는 아직 AI 연결 경로가 연결되지 않았습니다(미연결). 기존 설명·판정·기록은 그대로 쓸 수 있습니다.',
-  ALEKOV_CONNECT_UNAVAILABLE: 'AI 연결 기능이 아직 준비되지 않았습니다(서버 미준비). 기존 설명·판정·기록은 그대로 쓸 수 있습니다.',
+  ALEKOV_CONNECT_UNAVAILABLE: 'AI 연결 기능이 아직 준비되지 않았습니다. 기존 설명·판정·기록은 그대로 쓸 수 있습니다.',
   ALEKOV_CONNECT_NETWORK: '이 PC의 앱 서버에 연결할 수 없습니다. 앱이 실행 중인지 확인한 뒤 다시 누르세요.',
   ALEKOV_CONNECT_CLIENT_TIMEOUT: '서버 응답이 늦습니다. 「상태 다시 확인」으로 현재 상태를 확인하세요.',
-  ALEKOV_CONNECT_CONTEXT_UNVERIFIED: '현재 로그인·프로젝트를 확인할 수 없습니다. 다시 로그인한 뒤 연결을 새로 시작하세요.',
-  ALEKOV_CONNECT_CONTEXT_CHANGED: '계정·프로젝트·세션이 바뀌어 이전 연결을 멈췄습니다. 현재 계정으로 연결을 새로 시작하세요.',
+  ALEKOV_CONNECT_CONTEXT_UNVERIFIED: '현재 로그인·프로젝트를 확인할 수 없습니다. 「상태 다시 확인」으로 결과를 확인한 뒤, 문의용 확인정보를 담당자에게 전달하세요.',
+  ALEKOV_CONNECT_CONTEXT_CHANGED: '현재 로그인·프로젝트 확인을 계속할 수 없어 연결을 멈췄습니다. 확인 유효시간이 지났을 수도 있습니다. 「상태 다시 확인」으로 결과를 확인한 뒤, 문의용 확인정보를 담당자에게 전달하세요.',
   ALEKOV_CONNECT_NOT_FOUND: '연결 요청을 찾을 수 없습니다. 연결을 새로 시작하세요.',
-  ALEKOV_CONNECT_BUSY: '진행 중인 연결 요청이 많습니다. 기존 요청을 취소한 뒤 다시 시작하세요.',
+  ALEKOV_CONNECT_BUSY: '진행 중인 연결 요청이 너무 많습니다. 기존 요청을 취소하거나 끝낸 뒤 다시 시작하세요.',
   ALEKOV_CONNECT_EXPIRED: '승인 기한이 지났습니다. 연결을 새로 시작하세요.',
   ALEKOV_CONNECT_REJECTED: '연결 요청이 거절됐습니다. 승인한 계정이 현재 로그인과 같은지 확인한 뒤 새로 시작하세요.',
-  ALEKOV_CONNECT_CANCELLED: '연결을 취소했습니다. 이미 승인했다면 결과가 남아 있을 수 있어 확인 불가로 표시합니다.',
-  ALEKOV_CONNECT_TIMEOUT: '확인 시간이 지났습니다. 연결 결과를 확인할 수 없어 자동으로 다시 시도하지 않습니다.',
-  ALEKOV_CONNECT_STORAGE_UNVERIFIED: '연결 정보 저장을 확인하지 못했습니다. 연결 완료로 보지 않습니다. 담당자에게 확인을 요청하세요.',
-  ALEKOV_CONNECT_RESPONSE_INVALID: '서버 응답 형식을 확인할 수 없습니다(확인 불가). 연결 완료로 보지 않습니다.',
-  ALEKOV_CONNECT_DEADLINE: '현재 로그인 확인이나 서버 처리가 늦어 요청을 멈췄습니다. 자동으로 다시 시도하지 않습니다. 잠시 뒤 직접 다시 누르세요.',
+  ALEKOV_CONNECT_CANCELLED: '연결 취소 요청을 받았습니다. 이미 승인했다면 연결이 남아 있을 수 있습니다. 「상태 다시 확인」으로 결과를 확인하세요.',
+  ALEKOV_CONNECT_TIMEOUT: '승인 확인이 시간 안에 끝나지 않았습니다. 「상태 다시 확인」으로 결과를 확인하세요. 계속 확인 불가로 나오면 담당자에게 문의하세요.',
+  ALEKOV_CONNECT_STORAGE_UNVERIFIED: '연결 열쇠를 이 PC에 저장하지 못했거나 저장 여부를 확인하지 못했습니다. 「상태 다시 확인」을 누른 뒤, 계속 확인 불가로 나오면 문의용 확인정보를 담당자에게 전달하세요.',
+  ALEKOV_CONNECT_RESPONSE_INVALID: '연결 서버의 응답을 확인하지 못했습니다. 「상태 다시 확인」을 누른 뒤, 계속 확인 불가로 나오면 문의용 확인정보를 담당자에게 전달하세요.',
+  ALEKOV_CONNECT_DEADLINE: '현재 로그인 확인이나 서버 처리가 늦어 이 요청을 멈췄습니다. 자동으로 다시 시도하지 않습니다. 잠시 뒤 직접 다시 누르세요.',
   ALEKOV_CONNECT_INPUT_INVALID: '요청 형식이 올바르지 않습니다. 화면을 다시 불러온 뒤 새로 시작하세요.',
   ALEKOV_CONNECT_OUTCOME_UNKNOWN: '연결 결과를 확인할 수 없습니다. 자동으로 다시 시도하지 않습니다. 담당자에게 확인을 요청하세요.',
 });
@@ -77,6 +90,13 @@ export function validApprovalUrl(value, connectionId) {
 const fail = (code) => ({ ok: false, error: { code } });
 
 /** 기본 transport: 같은 origin POST JSON, 10초 제한. 응답은 {ok:true,data} 또는 고정 코드만 남긴다. */
+/** 상태 응답 봉투의 진단: 정확히 두 키, 허용 목록 값만. 그 밖은 null. */
+function safeDiagnostic(v) {
+  if (!exact(v, ['failedStage', 'detailCode'])) return null;
+  if (!(v.failedStage === null || CONNECT_STAGES.includes(v.failedStage)) || !(v.detailCode === null || CONNECT_DETAIL_CODES.includes(v.detailCode))) return null;
+  return { failedStage: v.failedStage, detailCode: v.detailCode };
+}
+
 export function createFetchTransport({ fetchImpl = (...args) => globalThis.fetch(...args), timeoutMs = 10000 } = {}) {
   return async function transport(kind, body, { signal } = {}) {
     if (!Object.hasOwn(CONNECT_PATHS, kind)) return fail('ALEKOV_CONNECT_INPUT_INVALID');
@@ -96,7 +116,8 @@ export function createFetchTransport({ fetchImpl = (...args) => globalThis.fetch
       let value = null;
       try { if (/^application\/json/i.test(response.headers.get('content-type') ?? '')) value = await response.json(); } catch { value = null; }
       if (timedOut) return fail('ALEKOV_CONNECT_CLIENT_TIMEOUT');
-      if (value?.ok === true && response.ok && isRecord(value.data)) return { ok: true, data: value.data };
+      // 10-26: 진단은 data 밖 diagnostic 키. 없거나 허용 목록 밖이면 버리고 상태 자체는 그대로 받는다.
+      if (value?.ok === true && response.ok && isRecord(value.data)) return { ok: true, data: value.data, diagnostic: safeDiagnostic(value.diagnostic) };
       const code = value?.ok === false && typeof value.error?.code === 'string' && Object.hasOwn(CONNECT_MESSAGES, value.error.code) ? value.error.code : null;
       if (code) return fail(code);
       // 경로가 아직 root 에 연결되지 않은 서버(404/405 등 계약 밖 응답)는 미연결이다. 가짜 연결로 대체하지 않는다.
@@ -116,7 +137,7 @@ export function createFetchTransport({ fetchImpl = (...args) => globalThis.fetch
 export function createAiConnectController({ transport = createFetchTransport(), onChange = () => {}, clock = () => Date.now(),
   pollMs = 2000, observeGraceMs = 60000, setTimer = (fn, ms) => setTimeout(fn, ms), clearTimer = (t) => clearTimeout(t) } = {}) {
   let generation = 0, pollTimer = null, controller = null;
-  let state = Object.freeze({ phase: 'idle', connectionId: null, approvalUrl: null, confirmation: null, expiresAt: null, reason: null, cancelUnconfirmed: false });
+  let state = Object.freeze({ phase: 'idle', connectionId: null, approvalUrl: null, confirmation: null, expiresAt: null, reason: null, failedStage: null, detailCode: null, cancelUnconfirmed: false });
   // cancelUnconfirmed: 취소를 요청했지만 서버가 취소 결과를 확정하지 않은 상태. 실패한 조회·형식 오류·서버의 unknown 응답으로는
   // 지워지지 않는다. 검증된 확정 상태(cancelled·connected·error 등 unknown 이 아닌 서버 응답)나 새 흐름(start)·reset 에서만 지운다.
   const set = (next) => { state = Object.freeze({ ...state, ...next }); onChange(state); };
@@ -130,9 +151,10 @@ export function createAiConnectController({ transport = createFetchTransport(), 
     catch { return fail('ALEKOV_CONNECT_RESPONSE_INVALID'); }
     finally { if (controller === own) controller = null; }
   }
-  function applyStatus(data, g, { fromCancel = false } = {}) {
+  function applyStatus(data, g, { fromCancel = false, diagnostic = null } = {}) {
     if (g !== generation) return;
     const pendingCancel = fromCancel || state.cancelUnconfirmed === true;
+    const diag = safeDiagnostic(diagnostic);
     if (!exact(data, ['connectionId', 'state', 'expiresAt', 'reason']) || data.connectionId !== state.connectionId || !STATES.includes(data.state)
       || (data.reason !== null && !(typeof data.reason === 'string' && CODE.test(data.reason))) || (data.expiresAt !== null && !iso(data.expiresAt))) {
       stopPoll();
@@ -140,7 +162,7 @@ export function createAiConnectController({ transport = createFetchTransport(), 
       return set({ phase: 'unknown', reason: 'ALEKOV_CONNECT_RESPONSE_INVALID', cancelUnconfirmed: pendingCancel });
     }
     // 서버가 unknown 으로 남긴 결과는 취소 완료 확인이 아니다. unknown 이 아닌 검증된 상태만 미확인 표식을 지운다.
-    set({ phase: data.state, reason: data.reason, cancelUnconfirmed: data.state === 'unknown' ? pendingCancel : false });
+    set({ phase: data.state, reason: data.reason, failedStage: diag?.failedStage ?? null, detailCode: diag?.detailCode ?? null, cancelUnconfirmed: data.state === 'unknown' ? pendingCancel : false });
     if (data.state === 'checking') schedulePoll(g); else stopPoll();
   }
   function schedulePoll(g) {
@@ -154,14 +176,14 @@ export function createAiConnectController({ transport = createFetchTransport(), 
     const result = await call('status', { connectionId: state.connectionId });
     if (g !== generation) return;
     if (!result.ok) { stopPoll(); return set({ phase: 'unknown', reason: result.error.code }); }
-    applyStatus(result.data, g);
+    applyStatus(result.data, g, { diagnostic: result.diagnostic });
   }
 
   async function start() {
     if (['starting', 'awaiting_approval', 'finishing', 'checking', 'cancelling'].includes(state.phase)) return state;
     const g = ++generation;
     stopPoll();
-    set({ phase: 'starting', connectionId: null, approvalUrl: null, confirmation: null, expiresAt: null, reason: null, cancelUnconfirmed: false });
+    set({ phase: 'starting', connectionId: null, approvalUrl: null, confirmation: null, expiresAt: null, reason: null, failedStage: null, detailCode: null, cancelUnconfirmed: false });
     const result = await call('start', {});
     if (g !== generation) return state;
     if (!result.ok) { set({ phase: 'error', reason: result.error.code }); return state; }
@@ -186,7 +208,7 @@ export function createAiConnectController({ transport = createFetchTransport(), 
       set({ phase: 'unknown', reason: result.error.code });
       return state;
     }
-    applyStatus(result.data, g);
+    applyStatus(result.data, g, { diagnostic: result.diagnostic });
     return state;
   }
 
@@ -198,7 +220,7 @@ export function createAiConnectController({ transport = createFetchTransport(), 
     const result = await call('status', { connectionId: state.connectionId });
     if (g !== generation) return state;
     if (!result.ok) { set({ phase: 'unknown', reason: result.error.code }); return state; }
-    applyStatus(result.data, g);
+    applyStatus(result.data, g, { diagnostic: result.diagnostic });
     return state;
   }
 
@@ -218,7 +240,7 @@ export function createAiConnectController({ transport = createFetchTransport(), 
     // 서버가 ok:true 로 돌려준 상태만 취소 결과의 근거다. 실패(응답 유실·시간 초과·확인 불가·거절 등)는
     // 이전 단계가 승인 대기였어도 취소 완료로 추정하지 않는다. 이미 승인됐을 수 있으므로 확인 불가로 둔다.
     if (!result.ok) { set({ phase: 'unknown', reason: result.error.code, cancelUnconfirmed: true }); return state; }
-    applyStatus(result.data, g, { fromCancel: true });
+    applyStatus(result.data, g, { fromCancel: true, diagnostic: result.diagnostic });
     return state;
   }
 
@@ -227,7 +249,7 @@ export function createAiConnectController({ transport = createFetchTransport(), 
     ++generation;
     stopPoll();
     abortRequest();
-    set({ phase: 'idle', connectionId: null, approvalUrl: null, confirmation: null, expiresAt: null, reason: null, cancelUnconfirmed: false });
+    set({ phase: 'idle', connectionId: null, approvalUrl: null, confirmation: null, expiresAt: null, reason: null, failedStage: null, detailCode: null, cancelUnconfirmed: false });
   }
 
   /** 비밀 없는 연결 도움정보. 연결 ID·승인 주소·학생 ID·로컬 경로·서버 원문은 넣지 않는다. */
@@ -236,6 +258,8 @@ export function createAiConnectController({ transport = createFetchTransport(), 
       component: 'alekov-ai-connect',
       phase: state.phase,
       reason: state.reason,
+      failedStage: connectStage(state.failedStage),
+      detailCode: state.detailCode == null ? null : connectDetail(state.detailCode),
       cancelUnconfirmed: state.cancelUnconfirmed,
       approvalExpiresAt: state.expiresAt,
       observedAt: new Date(clock()).toISOString(),
@@ -278,7 +302,7 @@ export const NATIVE_LOGIN_PATHS = Object.freeze({
 });
 export const NATIVE_ACTION_MS = 10000;
 export const NATIVE_RESPONSE_MAX_BYTES = 8192;
-const NATIVE_SERVER_STATES = ['disconnected', 'starting', 'awaiting_approval', 'connected', 'cancelled', 'unknown'];
+const NATIVE_SERVER_STATES = ['disconnected', 'starting', 'awaiting_approval', 'connected', 'cancelled', 'expired', 'unknown'];
 // 서버 nativePublicError 의 공개 코드와 비활성 경로(NATIVE_HOST_DISABLED)만 이유로 받아들인다.
 export const NATIVE_PUBLIC_CODES = Object.freeze(['INPUT_INVALID', 'DISABLED', 'CANCELLED', 'EXPIRED', 'TIMEOUT', 'RESPONSE_INVALID',
   'CONTEXT_CHANGED', 'UNVERIFIED', 'OUTCOME_UNKNOWN', 'BUSY'].map((code) => `NATIVE_HOST_${code}`));
@@ -296,7 +320,7 @@ export const NATIVE_MESSAGES = Object.freeze({
   NATIVE_HOST_EXPIRED: '확인 기한이 지났습니다. 「계정 연결 취소」를 누른 뒤 새로 시작하세요.',
   NATIVE_HOST_TIMEOUT: '포털 응답이 늦어 요청을 멈췄습니다. 자동으로 다시 시도하지 않습니다.',
   NATIVE_HOST_RESPONSE_INVALID: '포털 응답 형식을 확인할 수 없습니다. 연결로 보지 않습니다.',
-  NATIVE_HOST_CONTEXT_CHANGED: '계정이나 로그인 상태가 바뀌었습니다. 「계정 연결 취소」를 누른 뒤 새로 시작하세요.',
+  NATIVE_HOST_CONTEXT_CHANGED: '현재 로그인 상태 확인을 계속할 수 없습니다. 확인 유효시간이 지났을 수도 있습니다. 「계정 연결 확인」으로 상태를 확인한 뒤 담당자에게 문의하세요.',
   NATIVE_HOST_UNVERIFIED: '로그인 연결을 확인할 수 없습니다. 연결로 보지 않습니다.',
   NATIVE_HOST_OUTCOME_UNKNOWN: '결과를 확인할 수 없습니다. 자동으로 다시 시도하지 않습니다.',
   NATIVE_HOST_BUSY: '이전 계정 연결 요청이 남아 있습니다. 「계정 연결 취소」를 누른 뒤 새로 시작하세요.',
@@ -312,6 +336,7 @@ export const NATIVE_MESSAGES = Object.freeze({
   NATIVE_LOGIN_SERVER_UNKNOWN: '서버가 결과를 확인하지 못했습니다. 「현재 로그인 확인」이나 「계정 연결 취소」를 직접 누르세요.',
   NATIVE_LOGIN_SERVER_STARTING: '다른 연결 시작이 진행 중으로 보입니다. 잠시 뒤 「현재 로그인 확인」을 누르거나 「계정 연결 취소」를 누르세요.',
   NATIVE_LOGIN_EXPIRED_LOCAL: '표시된 기한이 지나 화면의 연결·확인 번호 표시를 지웠습니다. 서버에 다시 묻지 않았습니다.',
+  NATIVE_LOGIN_TICKET_EXPIRED: '서버가 이 연결 요청의 만료를 확인했습니다. 취소 성공을 뜻하지 않으며, 새 연결을 시작할 수 있습니다.',
   NATIVE_LOGIN_LOCAL_RESET: '이 화면의 진행과 요청만 멈췄습니다. 서버의 계정 연결이 취소됐다고 보지 않습니다. 「현재 로그인 확인」이나 「계정 연결 취소」로 확인하세요.',
 });
 const NATIVE_PHASE_MESSAGES = Object.freeze({
@@ -333,10 +358,14 @@ export const NATIVE_CANCEL_UNCONFIRMED_MESSAGE = '취소 요청의 결과를 확
 const nfail = (code) => Object.freeze({ ok: false, error: Object.freeze({ code }) });
 const nativeReason = (code) => (typeof code === 'string' && Object.hasOwn(NATIVE_MESSAGES, code) ? code : 'NATIVE_LOGIN_UNVERIFIED');
 const sixDigits = (v) => typeof v === 'string' && /^\d{6}$/.test(v);
+// 과거 연결 표시도 current를 고르는 단서로만 쓴다. 연결 성공이나 기한 연장의 근거로 쓰지 않는다.
+const nativeSessionStatus = (v) => exact(v, ['state', 'expiresAtMs', 'approvalUrl', 'confirmation']) && v.state === 'connected'
+  && Number.isSafeInteger(v.expiresAtMs) && v.expiresAtMs > 0 && v.approvalUrl === null && v.confirmation === null;
 const validNativeMeta = (m) => exact(m, NATIVE_META_KEYS) && NATIVE_META_KEYS.every((k) => typeof m[k] === 'string' && m[k].length <= 64);
 const nativeCanStart = (phase, expiredFrom) => ['idle', 'disconnected', 'cancelled', 'error', 'connected'].includes(phase)
-  || (phase === 'expired' && expiredFrom === 'connected');
-const nativeCanCancel = (phase) => !['idle', 'cancelling', 'cancelled', 'disconnected', 'error'].includes(phase);
+  || (phase === 'expired' && ['connected', 'pending-ticket'].includes(expiredFrom));
+const nativeCanCancel = (phase, expiredFrom) => !(phase === 'expired' && expiredFrom === 'pending-ticket')
+  && !['idle', 'cancelling', 'cancelled', 'disconnected', 'error'].includes(phase);
 
 /** 승인 URL 은 고정 포털의 /workbench.html, query 는 nativeLogin·device·challenge 순서의 정확한 세 개만 허용한다. */
 export function validNativeApprovalUrl(value) {
@@ -471,7 +500,7 @@ export function createNativeFetchTransport({ fetchImpl = (...args) => globalThis
 export function createNativeLoginController({ transport = createNativeFetchTransport(), onChange = () => {}, onInvalidate = () => {},
   clock = () => Date.now(), monotonic = () => performance.now(), actionMs = NATIVE_ACTION_MS,
   setTimer = (fn, ms) => setTimeout(fn, ms), clearTimer = (t) => clearTimeout(t) } = {}) {
-  let generation = 0, controller = null, expiryTimer = null, monoExpiry = null;
+  let generation = 0, controller = null, expiryTimer = null, monoExpiry = null, sessionQuery = false;
   let state = Object.freeze({ phase: 'idle', expiresAtMs: null, approvalUrl: null, confirmation: null, reason: null, cancelUnconfirmed: false, expiredFrom: null });
   const set = (next) => { state = Object.freeze({ ...state, ...next }); onChange(state); };
   const now = () => { const t = clock(); return Number.isSafeInteger(t) ? t : NaN; };
@@ -502,10 +531,14 @@ export function createNativeLoginController({ transport = createNativeFetchTrans
     }, Math.min(Math.ceil(wait) + 20, 2147483647));
   }
   function accept(data, g, extra = {}) {
+    if (data.state === 'connected') sessionQuery = true;
+    else if (['awaiting_approval', 'disconnected', 'cancelled', 'expired'].includes(data.state)) sessionQuery = false;
     monoExpiry = data.expiresAtMs === null ? null : monotonic() + (data.expiresAtMs - now());
     const phase = data.state === 'unknown' || data.state === 'starting' ? 'unknown' : data.state;
-    const reason = data.state === 'unknown' ? 'NATIVE_LOGIN_SERVER_UNKNOWN' : data.state === 'starting' ? 'NATIVE_LOGIN_SERVER_STARTING' : null;
-    set({ phase, expiresAtMs: data.expiresAtMs, approvalUrl: data.approvalUrl, confirmation: data.confirmation, reason, cancelUnconfirmed: false, expiredFrom: null, ...extra });
+    const reason = data.state === 'unknown' ? 'NATIVE_LOGIN_SERVER_UNKNOWN' : data.state === 'starting' ? 'NATIVE_LOGIN_SERVER_STARTING'
+      : data.state === 'expired' ? 'NATIVE_LOGIN_TICKET_EXPIRED' : null;
+    set({ phase, expiresAtMs: data.expiresAtMs, approvalUrl: data.approvalUrl, confirmation: data.confirmation, reason,
+      cancelUnconfirmed: false, expiredFrom: data.state === 'expired' ? 'pending-ticket' : null, ...extra });
     scheduleExpiry(g);
   }
   function failTo(ctx, code, phase, extra = {}) {
@@ -540,6 +573,7 @@ export function createNativeLoginController({ transport = createNativeFetchTrans
 
   async function start() {
     if (!nativeCanStart(state.phase, state.expiredFrom)) return state;
+    sessionQuery = false;
     notify('start');
     const ctx = begin('starting', { expiresAtMs: null, approvalUrl: null, confirmation: null, cancelUnconfirmed: false, expiredFrom: null });
     monoExpiry = null;
@@ -576,24 +610,32 @@ export function createNativeLoginController({ transport = createNativeFetchTrans
     } finally { end(ctx); }
   }
 
-  // 「현재 로그인 확인」: 이미 connected 면 current, 아니면 status 를 한 번 읽는다.
+  // 「현재 로그인 확인」: session 확인 흐름은 unknown·화면 만료 뒤에도 current 를 한 번 직접 읽는다.
+  // 아직 ticket 흐름이면 status 를 읽고, 과거 connected 형식도 current 선택에만 사용한다.
   // status 는 저장된 공개 상태일 뿐이다. connected 로 보이면 같은 기한 안에서 current 로 다시 확인한다.
   async function check() {
     if (NATIVE_BUSY.includes(state.phase)) return state;
     const wasConnected = state.phase === 'connected';
+    const readCurrent = sessionQuery || wasConnected;
     const ctx = begin('checking');
     try {
-      let kind = wasConnected ? 'current' : 'status';
+      let kind = readCurrent ? 'current' : 'status';
       let result = await call(ctx, kind);
       if (!live(ctx)) return state;
       let data = result.ok ? validNativeData(result.data, now()) : null;
-      if (result.ok && kind === 'status' && data?.state === 'connected') {
+      if (result.ok && kind === 'status' && nativeSessionStatus(result.data)) {
+        sessionQuery = true;
         kind = 'current';
         result = await call(ctx, 'current');
         if (!live(ctx)) return state;
         data = result.ok ? validNativeData(result.data, now()) : null;
       }
-      if (!result.ok) failTo(ctx, result.error.code, 'unknown');
+      if (!result.ok) {
+        const inTime = timely(ctx);
+        const confirmedExpired = kind === 'current' && result.error.code === 'NATIVE_HOST_EXPIRED' && inTime;
+        failTo(ctx, inTime ? result.error.code : 'NATIVE_LOGIN_CLIENT_TIMEOUT', confirmedExpired ? 'expired' : 'unknown',
+          confirmedExpired ? { expiredFrom: 'connected' } : {});
+      }
       else if (!data || (kind === 'current' && data.state !== 'connected')) failTo(ctx, 'NATIVE_LOGIN_RESPONSE_INVALID', 'unknown');
       else if (!timely(ctx)) failTo(ctx, 'NATIVE_LOGIN_CLIENT_TIMEOUT', 'unknown');
       else accept(data, ctx.g, kind === 'status' && data.state === 'awaiting_approval' ? { reason: 'NATIVE_LOGIN_STATUS_ONLY' } : {});
@@ -605,7 +647,7 @@ export function createNativeLoginController({ transport = createNativeFetchTrans
   // 사용자 취소: 새 세대로 진행 중 요청과 늦은 응답을 버리고 서버에 실제 cancel {} 를 보낸다.
   // starting 중에도 보낸다(서버가 ticket·verifier 를 보관한다). 응답 유실·시간 초과는 취소 성공이 아니다.
   async function cancel() {
-    if (!nativeCanCancel(state.phase)) return state;
+    if (!nativeCanCancel(state.phase, state.expiredFrom)) return state;
     notify('cancel');
     const ctx = begin('cancelling', { expiresAtMs: null, approvalUrl: null, confirmation: null, expiredFrom: null });
     monoExpiry = null;
@@ -614,6 +656,7 @@ export function createNativeLoginController({ transport = createNativeFetchTrans
       if (!live(ctx)) return state;
       if (!result.ok) { failTo(ctx, result.error.code, 'unknown', { cancelUnconfirmed: true }); return state; }
       const data = validNativeData(result.data, now());
+      if (data?.state === 'expired' && timely(ctx)) { accept(data, ctx.g); return state; }
       if (data?.state === 'cancelled' && timely(ctx)) { accept(data, ctx.g); return state; }
       failTo(ctx, data?.state === 'cancelled' ? 'NATIVE_LOGIN_CLIENT_TIMEOUT' : 'NATIVE_LOGIN_RESPONSE_INVALID', 'unknown', { cancelUnconfirmed: true });
       return state;
@@ -627,6 +670,7 @@ export function createNativeLoginController({ transport = createNativeFetchTrans
     abortRequest();
     stopExpiry();
     monoExpiry = null;
+    sessionQuery = false;
     set({ phase: quiet ? 'idle' : 'unknown', expiresAtMs: null, approvalUrl: null, confirmation: null,
       reason: quiet ? null : 'NATIVE_LOGIN_LOCAL_RESET', cancelUnconfirmed: false, expiredFrom: null });
   }
@@ -666,8 +710,9 @@ export function nativeLoginView(state, now = Date.now()) {
   if (phase === 'awaiting_approval' && !awaiting) { phase = 'unknown'; reason = 'NATIVE_LOGIN_RESPONSE_INVALID'; }
   const busy = NATIVE_BUSY.includes(phase);
   const cancelUnconfirmed = phase === 'unknown' && s.cancelUnconfirmed === true;
-  const base = cancelUnconfirmed ? NATIVE_CANCEL_UNCONFIRMED_MESSAGE : NATIVE_PHASE_MESSAGES[phase];
-  const detail = reason && !(cancelUnconfirmed && reason === 'NATIVE_LOGIN_CANCELLED') ? NATIVE_MESSAGES[reason] : '';
+  const ticketExpired = phase === 'expired' && from === 'pending-ticket';
+  const base = cancelUnconfirmed ? NATIVE_CANCEL_UNCONFIRMED_MESSAGE : ticketExpired ? NATIVE_MESSAGES.NATIVE_LOGIN_TICKET_EXPIRED : NATIVE_PHASE_MESSAGES[phase];
+  const detail = reason && !ticketExpired && !(cancelUnconfirmed && reason === 'NATIVE_LOGIN_CANCELLED') ? NATIVE_MESSAGES[reason] : '';
   return Object.freeze({
     phase,
     reason,
@@ -680,6 +725,6 @@ export function nativeLoginView(state, now = Date.now()) {
     canStart: nativeCanStart(phase, from),
     canRedeem: awaiting,
     canCheck: !busy,
-    canCancel: nativeCanCancel(phase),
+    canCancel: nativeCanCancel(phase, from),
   });
 }

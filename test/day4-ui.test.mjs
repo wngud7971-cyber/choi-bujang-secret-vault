@@ -2,7 +2,10 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
+import {fileURLToPath} from 'node:url';
 import {createStudentView} from '../on-client/student/extension.mjs';
+import {readStudentAppearance} from '../on-client/src/student-appearance-files.mjs';
+import {appearanceView, appearanceCss, contrastRatio, APPEARANCE_FIXED_FOREGROUNDS} from '../on-client/src/student-appearance.mjs';
 import {renderPcStatusView, activatePcCharts} from '../on-client/student/pc-status-view.mjs';
 import {renderConnectionStatusView, renderWindowsEventSummary} from '../on-client/student/connection-status-view.mjs';
 
@@ -16,6 +19,7 @@ class E {
   append(...nodes) {this.children.push(...nodes);}
   replaceChildren(...nodes) {if (this.ownerDocument.activeElement && this.contains(this.ownerDocument.activeElement)) this.ownerDocument.activeElement = null; this.children = nodes; this.ownText = '';}
   setAttribute(key, value) {this.attributes[key] = String(value); if (key.startsWith('data-')) this.dataset[key.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = String(value);}
+  removeAttribute(key) {delete this.attributes[key];}
   getAttribute(key) {return this.attributes[key] ?? null;}
   addEventListener(key, callback) {(this.listeners[key] ||= []).push(callback);}
   contains(node) {return this === node || this.children.some(child => child instanceof E && child.contains(node));}
@@ -49,12 +53,148 @@ const connectionData = () => {
     sdp: {status: 'disconnected', checkedAt: to, source: 'test fixture', reason: '시험용 SDP 미설정'}};
 };
 
-test('핵심 세 목표는 방어 성공으로 가장하지 않으며 예제·SDP 세션·대응 효과를 구분한다', () => withDocument(document => {
+const coreCard = (node, stage) => walk(node).find(element => element.getAttribute('data-core-feature') === String(stage));
+test('꾸밈은 검증된 세 색만 사용하고 상태 의미 색과 글자 대비를 유지한다', async () => {
+  const read = await readStudentAppearance(fileURLToPath(new URL('../on-client', import.meta.url)));
+  const view = appearanceView(read);
+  assert.equal(view.state, 'applied');
+  const css = appearanceCss(view);
+  assert.match(css, /:root\{--accent:/);
+  assert.doesNotMatch(css, /--(?:allow|deny|challenge|unknown|focus|student)\s*:/);
+  for (const background of [view.palette.background, view.palette.surface]) {
+    for (const foreground of Object.values(APPEARANCE_FIXED_FOREGROUNDS)) assert.ok(contrastRatio(foreground,background) >= 4.5);
+  }
+});
+
+test('로컬 꾸밈 stylesheet는 한 번만 연결하고 정적 웹에서는 요청하지 않는다', () => withDocument(document => {
+  document.head = document.createElement('head');
+  document.head.querySelector = () => document.head.children.find(node => node.getAttribute('rel') === 'stylesheet' && node.getAttribute('href') === '/student/appearance.css') || null;
+  createStudentView(); createStudentView();
+  assert.equal(document.head.children.length, 1);
+  assert.equal(document.head.children[0].tagName, 'link');
+  assert.equal(document.head.children[0].getAttribute('href'), '/student/appearance.css');
+  document.head.children = []; document.documentElement = {dataset:{runtime:'web'}};
+  createStudentView(); assert.equal(document.head.children.length, 0);
+}));
+
+test('점검 목록은 행·열 제목과 키보드 스크롤을 제공하고 갱신·실패 후에도 시각과 초점을 일치시킨다', () => withDocument(document => {
+  const view = createStudentView({capabilities:{overviewSlot:true}}), node = view.renderOverview({});
+  const table = walk(node).find(element => element.tagName === 'table' && element.getAttribute('aria-label') === '세 핵심 점검의 현재 상태와 최근 응답');
+  assert.ok(table);
+  assert.equal(walk(table).filter(element => element.tagName === 'th' && element.getAttribute('scope') === 'col').length, 4);
+  assert.equal(walk(table).filter(element => element.tagName === 'th' && element.getAttribute('scope') === 'row').length, 3);
+  assert.ok(walk(node).some(element => element.contains(table) && element.getAttribute('role') === 'region' && element.getAttribute('tabindex') === '0'));
+  const card = coreCard(node,17);
+  const time = walk(card).find(element => element.tagName === 'time');
+  const details = walk(card).find(element => element.tagName === 'details');
+  assert.notEqual(details.open, true);
+  assert.equal(details.getAttribute('data-preserve-key'), 'core-details-ai');
+  assert.equal(time.getAttribute('datetime'), null);
+  view.renderAiConnection({status:'ok',data:{transportChecked:true,audienceAuthorization:'verified',modelCount:1},checkedAt:'2026-10-30T02:30:00.000Z'});
+  assert.match(time.textContent,/11:30:00 KST/);
+  assert.equal(time.getAttribute('datetime'), '2026-10-30T02:30:00.000Z');
+  assert.match(walk(card).find(element => element.className === 'overview-card-note').textContent,/응답 모델 1개/);
+  assert.match(details.textContent,/사건 설명을 실행한 것은 아닙니다/);
+  const button = walk(card).find(element => element.tagName === 'button'); button.focus(); details.open = true;
+  view.renderAiConnection({status:'error',error:{code:'AI_REQUEST_UNVERIFIED'},checkedAt:'2026-10-30T02:30:00.000Z'});
+  assert.equal(time.textContent,'새 조회 결과 없음');
+  assert.equal(time.getAttribute('datetime'), null); assert.equal(details.open, true);
+  assert.match(card.textContent,/점검 실패/); assert.strictEqual(document.activeElement,button);
+  view.renderAiConnection({status:'ok',mode:'demo',data:{transportChecked:true,audienceAuthorization:'test',modelCount:1},checkedAt:'2026-10-30T02:30:00.000Z'});
+  assert.match(walk(card).find(element => element.className === 'overview-card-note').textContent,/예제 자료 · 실제 AI 연결 아님/);
+  view.renderAiConnection({status:'loading'});
+  assert.equal(time.textContent,'새 조회 결과 없음'); assert.equal(time.getAttribute('datetime'), null);
+  assert.strictEqual(document.activeElement,button); assert.equal(details.open, true);
+}));
+
+test('선정한 세 기능을 먼저 표시하고 바로가기는 펼침·초점만 변경하며 요청하지 않는다', () => withDocument(document => {
+  let requests = 0;
+  const view = createStudentView({capabilities: {overviewSlot: true}, api: {get() {requests++;}}});
+  const node = view.renderOverview({});
+  assert.deepEqual(walk(node).filter(element => element.getAttribute('data-core-feature')).map(element => element.getAttribute('data-core-feature')), ['16','17','20']);
+  for (const [stage, targetId] of [[16,'diag-load'],[17,'ai-check'],[20,'vulnerabilities-load']]) {
+    const target = document.getElementById(targetId), details = document.createElement('details');
+    target.parentElement = details;
+    target.addEventListener('click', () => requests++);
+    const button = walk(coreCard(node, stage)).find(element => element.tagName === 'button');
+    button.listeners.click[0]();
+    assert.equal(details.open, true); assert.strictEqual(document.activeElement, target);
+  }
+  assert.equal(requests, 0);
+  assert.match(node.textContent, /기존 PC·Windows 관측과 보안 기록 보기/);
+  assert.ok(walk(node).some(element => element.getAttribute('data-preserve-key') === 'previous-observations'));
+}));
+
+test('핵심 진단 요약은 실제 renderStatus 입력으로 갱신하며 실패 뒤 과거 성공을 지운다', () => withDocument(() => {
+  const view = createStudentView({capabilities: {overviewSlot: true}}), node = view.renderOverview({});
+  const card = coreCard(node,16), at = '2026-10-28T02:00:00.000Z';
+  const input = {devices:{status:'idle'}, sessions:{status:'idle'}, notifications:[{resource:'me',code:'ENGINE_NOT_CONNECTED',message:'시험용 연결 없음'}], mode:'disconnected',
+    diagnostics:{status:'ok',data:{requestId:'fixture-request',component:'on-client',version:'0.1.0',checkedAt:at,engine:{mode:'disconnected',code:'ENGINE_NOT_CONNECTED'}}}};
+  view.renderStatus(input);
+  assert.match(card.textContent,/진단 정보 조회됨/); assert.match(card.textContent,/알림 1건/);
+  assert.match(card.textContent,/진단 조회 성공은 보안 엔진 연결 성공과 별개/);
+  view.renderStatus({...input,diagnostics:{...input.diagnostics,status:'error',error:{message:'시험용 조회 실패'}}});
+  assert.match(card.textContent,/진단 조회 실패/); assert.doesNotMatch(card.textContent,/진단 정보 조회됨|2026-10-28/);
+  view.renderStatus({...input,diagnostics:{status:'loading'}}); assert.match(card.textContent,/진단 조회 중/);
+  view.renderStatus({...input,diagnostics:{status:'idle'}}); assert.match(card.textContent,/진단 조회 전/);
+}));
+
+test('현재 화면은 진단 복사를 하나로 합치고 공통 버튼이 없는 환경은 기존 복사 기능을 유지한다', () => withDocument(document => {
+  const input = {diagnostics:{status:'idle'}};
+  document.elements['diag-copy'] = document.createElement('button');
+  const shared = createStudentView({capabilities:{overviewSlot:true}}).renderStatus(input);
+  assert.ok(!walk(shared).some(node => node.tagName === 'button' && node.textContent === '도움정보 복사'));
+  const legacy = createStudentView().renderStatus(input);
+  assert.ok(walk(legacy).some(node => node.tagName === 'button' && node.textContent === '도움정보 복사'));
+  document.elements['diag-copy'] = document.createElement('div');
+  const fallback = createStudentView({capabilities:{overviewSlot:true}}).renderStatus(input);
+  assert.ok(walk(fallback).some(node => node.tagName === 'button' && node.textContent === '도움정보 복사'));
+}));
+
+test('AI 요약은 verified·시험·불완전 응답·실패·초기화를 구분하고 사건 설명 성공을 만들지 않는다', () => withDocument(() => {
+  const view = createStudentView({capabilities: {overviewSlot: true}}), node = view.renderOverview({});
+  const card = coreCard(node,17), data = {transportChecked:true,audienceAuthorization:'verified',modelCount:1};
+  const input = {status:'ok',data,checkedAt:'2026-10-28T02:00:00.000Z'};
+  view.renderAiConnection(input); assert.match(card.textContent,/응답 점검됨\(verified\)/); assert.equal(card.getAttribute('data-observation'),'observed');
+  assert.match(card.textContent,/사건 설명을 실행한 것은 아닙니다/);
+  view.renderAiConnection({...input,data:{...data,audienceAuthorization:'test'}});
+  assert.match(card.textContent,/시험 연결 점검/); assert.notEqual(card.getAttribute('data-observation'),'observed');
+  view.renderAiConnection({...input,data:{...data,modelCount:0}}); assert.match(card.textContent,/사용 가능한 모델 없음/);
+  view.renderAiConnection({...input,data:{modelCount:1}}); assert.match(card.textContent,/결과 확인 불가/);
+  view.renderAiConnection({...input,status:'error',error:{code:'AI_REQUEST_UNVERIFIED'}});
+  assert.match(card.textContent,/점검 실패/); assert.doesNotMatch(card.textContent,/응답 점검됨|2026-10-28/);
+  view.renderAiConnection({status:'idle'}); assert.match(card.textContent,/점검 전/);
+}));
+
+test('패키지 요약은 미설정·미조회·부분 실패·전체 결과와 재조회 실패를 구분한다', () => withDocument(() => {
+  const view = createStudentView({capabilities: {overviewSlot: true}}), node = view.renderOverview({});
+  const card = coreCard(node,20), at = '2026-10-28T02:00:00.000Z';
+  const input = {status:'ok',data:{status:'not_configured',packages:[],checkedAt:at}};
+  view.renderVulnerabilities({status:'loading'}); assert.match(card.textContent,/OSV 응답을 기다리는 중/); assert.doesNotMatch(card.textContent,/설정을 준비|허용 목록을 준비/);
+  view.renderVulnerabilities(input); assert.match(card.textContent,/조회 준비 미완료/); assert.match(card.textContent,/PROJECT_NOT_CONFIGURED/);
+  view.renderVulnerabilities({...input,data:{...input.data,status:'not_checked'}}); assert.match(card.textContent,/승인된 조회 대상 없음/);
+  const complete = {status:'complete',checkedAt:at,packages:[{name:'fixture-public',version:'1.0.0',status:'none_found',source:'fixture',checkedAt:at,vulnerabilities:[]}]};
+  const rendered = view.renderVulnerabilities({...input,data:complete,mode:'disconnected'}); assert.match(card.textContent,/패키지 조회 완료/); assert.match(card.textContent,/안전 보장이 아닙니다/);
+  assert.match(rendered.textContent,/보안 엔진 연결 없음\(disconnected\).*OSV 공개 조회 결과는 아래에서 별도로/);
+  const finding = {...complete.packages[0],status:'known_vulnerabilities',vulnerabilities:[{id:'OSV-FIXTURE-1',modified:at}]};
+  view.renderVulnerabilities({...input,data:{...complete,packages:[finding]}});
+  assert.match(walk(card).find(element => element.className === 'overview-card-note').textContent,/취약점 정보 수신 1개 패키지/);
+  assert.notEqual(card.getAttribute('data-observation'),'observed');
+  view.renderVulnerabilities({...input,data:{...complete,status:'partial',packages:[{...complete.packages[0],status:'unverifiable'}]}});
+  assert.match(card.textContent,/일부 조회 확인 불가/); assert.notEqual(card.getAttribute('data-observation'),'observed');
+  view.renderVulnerabilities({...input,status:'error',data:complete,error:{message:'시험용 조회 실패'}});
+  assert.match(card.textContent,/패키지 조회 실패/); assert.doesNotMatch(card.textContent,/조회 완료|2026-10-28/);
+  view.renderVulnerabilities({status:'idle'}); assert.match(card.textContent,/패키지 조회 전/);
+}));
+
+test('세 상태 요약은 관측·연결·예제를 구분하며 바로가기를 유지한다', () => withDocument(document => {
   let opened = 0;
   const view = createStudentView({actions: {openPc: () => opened++}, capabilities: {overviewSlot: true}});
   const node = view.renderOverview({identity: {status: 'error', mode: 'disconnected'}, events: {status: 'error'}});
-  assert.equal(walk(node).filter(el => el.className === 'card defense-card').length, 3);
-  for (const label of ['제로트러스트 접근 통제','DDoS·API 남용 대응','계정 악용·자료 유출 대응','보안 엔진 미연결','방어 효과 미확인','다음 할 일']) assert.match(node.textContent, new RegExp(label));
+  assert.equal(walk(node).filter(el => el.getAttribute('data-status-summary')).length, 3);
+  assert.ok(!walk(node).some(el => String(el.className || '').split(/\s+/).includes('card')));
+  for (const label of ['내 PC 실측','Windows 상태','보안 연결 현황','보안 엔진 미연결','측정 전','다음 할 일','최근 보안 기록']) assert.match(node.textContent, new RegExp(label));
+  assert.doesNotMatch(node.textContent, /DDoS·API 남용 대응|방어 목표별/);
   const button = walk(node).find(el => el.tagName === 'button' && el.textContent === 'PC 상태 보기'); button.listeners.click[0](); assert.equal(opened, 1);
   assert.match(view.renderOverview({identity: {mode: 'demo'}}).textContent, /예제 · 실제 연결 아님/);
   assert.match(view.renderOverview({identity: {mode: 'connected'}, sdpCurrent: true, sdp: {status: 'connected', checkedAt: new Date().toISOString()}}).textContent, /세션 확인됨 · 차단 효과 미확인/);
@@ -65,7 +205,7 @@ test('핵심 세 목표는 방어 성공으로 가장하지 않으며 예제·SD
 test('이전 학생 표시 계약에서도 요약을 유지하고 지원되지 않는 바로가기는 실행하지 않는다', () => withDocument(() => {
   const view = createStudentView();
   const node = view.renderIdentity({me: {status: 'error', mode: 'disconnected', error: {message: '시험용 미연결'}}, devices: {status: 'loading'}, sessions: {status: 'loading'}});
-  assert.match(node.textContent, /DDoS·API 남용 대응/);
+  assert.match(node.textContent, /보안 연결 현황/);
   assert.ok(walk(node).filter(el => el.tagName === 'button').every(button => button.disabled));
 }));
 
@@ -76,9 +216,10 @@ test('C: 읽기 실패는 항목·이유·다음 행동과 null을 유지하고 
   const latest = {kind: 'measured', measuredAt: at, cpu: ok('cpu', 17), memory: ok('memory', 12),
     disk: {status: 'unavailable', value: null, unit: 'GiB', measuredAt: at, source: 'test fixture', reason: '시험용 C: 접근 거부'}};
   const data = {schema: 'keshev.pc-status.v1', kind: 'measured', intervalMs: 5000, retentionHours: 24, disk: 'C:', servedAt: at, storage: {status: 'ok', reason: ''}, latest, history: [latest]};
-  const node = renderPcStatusView({status: 'ok', data});
+  const node = createStudentView().renderPcStatus({status: 'ok', data});
   assert.match(node.textContent, /C: 디스크 남은 공간 읽기 실패/); assert.match(node.textContent, /시험용 C: 접근 거부/); assert.match(node.textContent, /다음 할 일/);
-  const cards = walk(node).filter(el => el.className === 'card pc-metric');
+  const cards = walk(node).filter(el => String(el.className || '').split(/\s+/).includes('pc-metric'));
+  assert.ok(!walk(node).some(el => String(el.className || '').split(/\s+/).includes('card')));
   assert.match(cards[0].textContent, /17.0/); assert.match(cards[2].textContent, /확인 불가/); assert.doesNotMatch(cards[2].textContent, /0.00 GiB/);
   assert.ok(walk(cards[2]).some(el => el.attributes.role === 'alert'));
   const error = renderPcStatusView({status: 'error', error: {stage: 'history', message: '시험용 복원 실패'}});
@@ -154,14 +295,18 @@ test('실제 메뉴 키보드 처리와 클릭 연결은 대기 중 중복 요�
   document.tabs.at(-1).listeners.keydown[0]({key: 'Home', preventDefault() {}}); assert.strictEqual(document.activeElement, first);
 }));
 
-test('학생 표시 지점·재조회 접근성 이름·설치형 미지원 사실을 소스에서 확인한다', async () => {
+test('학생 표시 지점·재조회 접근성 이름·새 제공 패키지 도구를 소스에서 확인한다', async () => {
   for (const id of ['student-overview','overview-query-status','pc-query-status','connection-query-status']) assert.ok(html.includes('id="' + id + '"'));
   for (const label of ['PC·Windows·연결과 보안 기록 다시 조회','내 PC 상태 다시 조회','연결과 기록 다시 조회']) assert.ok(html.includes('aria-label="' + label + '"'));
   assert.ok(html.indexOf('id="student-overview"') < html.indexOf('id="identity-user"'));
   assert.equal((html.match(/aria-atomic="true"/g) || []).length, 3);
   const packageInfo = JSON.parse(await readFile(new URL('../on-client/package.json', import.meta.url), 'utf8'));
-  assert.equal(packageInfo.scripts['package-app'], undefined);
-  await assert.rejects(readFile(new URL('../on-client/student/appearance.json', import.meta.url)), {code: 'ENOENT'});
+  assert.equal(packageInfo.version, '0.2.21');
+  assert.equal(packageInfo.scripts['package-app'], 'node tools/package-app.mjs');
+  assert.ok((await readFile(new URL('../on-client/tools/package-app.mjs', import.meta.url), 'utf8')).length > 0);
+  const appearance = JSON.parse(await readFile(new URL('../on-client/student/appearance.json', import.meta.url), 'utf8'));
+  assert.equal(appearance.schema, 'alekov.student-appearance.v1');
+  assert.deepEqual(Object.keys(appearance).sort(), ['palette','schema']);
   assert.ok(!source.includes('appearance.json'));
 });
 
@@ -174,11 +319,45 @@ const measuredPcData = () => {
   return {schema: 'keshev.pc-status.v1', kind: 'measured', intervalMs: 5000, retentionHours: 24, disk: 'C:', servedAt: latest.measuredAt,
     storage: {status: 'ok', reason: ''}, latest, history: [sample(new Date(now - 5000).toISOString(), 17), latest]};
 };
+test('상태 요약은 부분 실패·이전 자료·조회 중을 성공으로 바꾸지 않는다', () => withDocument(() => {
+  const view=createStudentView({capabilities:{overviewSlot:true}}),pc=measuredPcData(),windows=connectionData();
+  const read=(pcStatus,connectionStatus)=>view.renderOverview({pcStatus,connectionStatus,identity:{mode:'disconnected'},events:{status:'error'}});
+  const card=(node,index)=>walk(node).filter(el=>el.getAttribute('data-status-summary'))[index];
+  let node=read({status:'ok',data:pc},{status:'ok',data:windows});
+  assert.match(card(node,0).textContent,/3개 지표 조회됨/);
+  assert.equal(card(node,0).getAttribute('data-observation'),'observed');
+  assert.match(card(node,1).textContent,/일부 영역 확인 불가/);
+  assert.equal(card(node,1).getAttribute('data-observation'),'pending');
+  assert.match(card(node,2).textContent,/보안 엔진 미연결/);
+  node=read({status:'error',data:pc,error:{message:'시험용 조회 실패'}},{status:'error',data:windows});
+  assert.match(card(node,0).textContent,/측정 요청 실패/);assert.equal(card(node,0).getAttribute('data-observation'),'pending');
+  assert.match(card(node,1).textContent,/조회 요청 실패[\s\S]*이전 조회 자료/);
+  node=read({status:'loading'},{status:'loading',data:windows});
+  assert.match(card(node,0).textContent,/실측 조회 중/);assert.match(card(node,1).textContent,/Windows 조회 중[\s\S]*이전 조회 자료/);
+  const old=structuredClone(pc);old.latest.measuredAt=new Date(Date.now()-120000).toISOString();
+  node=read({status:'ok',data:old},{status:'ok',data:{...windows,checkedAt:new Date(Date.now()-120000).toISOString()}});
+  assert.match(card(node,0).textContent,/이전 측정 기록/);assert.match(card(node,1).textContent,/이전 조회 기록/);
+  const partial=structuredClone(pc);partial.latest.disk={...partial.latest.disk,status:'unavailable',value:null,reason:'시험용 C: 조회 실패'};
+  node=read({status:'ok',data:partial},{status:'idle'});assert.match(card(node,0).textContent,/일부 지표 확인 불가[\s\S]*2\/3/);
+  node=read({status:'error',environment:'web'},{status:'error'});assert.match(card(node,0).textContent,/로컬 앱에서 확인/);
+}));
+test('최근 기록은 받은 자료를 시각순으로 제한해 표시하고 실패·예제·빈 목록을 구분한다',()=>withDocument(()=>{
+  const view=createStudentView({capabilities:{overviewSlot:true}}),events=Array.from({length:5},(_,i)=>({id:'event-'+i,appId:'library',at:new Date(Date.now()-i*1000).toISOString(),summary:'시험용 기록 '+i}));
+  const input={status:'ok',mode:'connected',data:[...events].reverse()},before=JSON.stringify(input);
+  const recent=node=>walk(node).find(el=>el.className==='overview-recent');
+  let node=recent(view.renderOverview({events:input}));
+  assert.equal(walk(node).filter(el=>el.tagName==='li').length,4);assert.ok(node.textContent.indexOf('기록 0')<node.textContent.indexOf('기록 1'));assert.doesNotMatch(node.textContent,/기록 4/);assert.equal(JSON.stringify(input),before);
+  node=recent(view.renderOverview({events:{...input,status:'loading'}}));assert.match(node.textContent,/조회 중/);assert.doesNotMatch(node.textContent,/시험용 기록/);
+  node=recent(view.renderOverview({events:{...input,status:'error'}}));assert.match(node.textContent,/연결이 없습니다/);assert.doesNotMatch(node.textContent,/시험용 기록/);
+  assert.match(recent(view.renderOverview({events:{...input,data:[]}})).textContent,/받은 보안 기록이 없습니다/);
+  assert.match(recent(view.renderOverview({events:{...input,mode:'demo'}})).textContent,/예제 기록 · 실제 연결 아님/);
+}));
 test('대시보드 그래프·디스크 막대는 전달된 실측 자료와 단위를 사용하고 설명 펼침과 초점을 유지한다', () => withDocument(document => {
   const pc = measuredPcData(), context = hostContext(document);
   context.studentData = () => ({pcStatus: {status: 'ok', data: pc}, connectionStatus: {status: 'ok', data: connectionData()}});
   context.controls.renderStudent('overview');
   const node = document.getElementById('student-overview');
+  assert.ok(!walk(node).some(el => String(el.className || '').split(/\s+/).includes('card')));
   assert.match(node.textContent, /27.0/); assert.match(node.textContent, /31.00/); assert.match(node.textContent, /GiB/);
   const meter = walk(node).find(el => el.attributes.role === 'meter'); assert.equal(meter.attributes['aria-valuenow'], '31.0');
   const detail = node.querySelectorAll('details[data-preserve-key]').find(el => el.attributes['data-preserve-key'] === 'defense-02');

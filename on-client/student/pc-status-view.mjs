@@ -153,7 +153,7 @@ export function renderPcStatusView({status = 'idle', data, error, rangeMinutes =
   const runState = element('p', recording ? '실측 자동 갱신 중 · 5초 간격'
     : paused ? '요청 실패로 자동 갱신 중지 · 다시 조회로 다시 시작하세요.' : '자동 측정 대기 · 이 화면을 보고 있을 때만 수집합니다.', 'pc-run-state');
   root.appendChild(runState);
-  const provenance = element('p', '직접 추가한 PC 실측 기능 · 보안 엔진 연결 상태와 별개입니다. 예제값을 사용하지 않습니다.', 'pc-provenance-note');
+  const provenance = element('p', 'PC 실측은 보안 엔진 연결 상태와 별개입니다. 예제값을 사용하지 않습니다.', 'pc-provenance-note');
   if (!compact) root.appendChild(provenance);
   if (error) root.appendChild(failure((error.stage === 'history' ? 'PC 기록 복원' : error.stage === 'sample' ? 'CPU·메모리·C: 실측 조회' : 'PC 상태 조회') + ' 실패',
     (error.message || 'PC 상태 요청을 완료하지 못했습니다.') + ' · 이전 기록을 새 측정으로 표시하지 않습니다.',
@@ -225,7 +225,7 @@ export function renderPcStatusView({status = 'idle', data, error, rangeMinutes =
   evidence.setAttribute('data-preserve-key', 'pc-evidence');
   const evidenceSummary = element('summary', '측정 근거·출처·시각 보기'); evidenceSummary.setAttribute('data-focus-key', 'pc-evidence'); evidence.appendChild(evidenceSummary);
   if (compact) {evidence.appendChild(provenance); evidence.appendChild(recordInfo); if (!showLastInfo) evidence.appendChild(lastInfo);}
-  evidence.appendChild(element('h3', '측정 근거 · 직접 추가'));
+  evidence.appendChild(element('h3', '측정 근거'));
   const tableWrap = element('div', undefined, 'pc-table-wrap'), table = element('table');
   table.appendChild(element('caption', '항목별 실제 조회 출처·측정 범위·단위·잰 시각', 'sr-only'));
   const head = element('thead'), headings = element('tr');

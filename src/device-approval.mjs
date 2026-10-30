@@ -7,6 +7,16 @@ import { parseResourceTarget } from './resource-path.mjs';
 const HASH = /^[a-f0-9]{64}$/u;
 const UUID = /^[a-f0-9-]{36}$/u;
 const ID = /^[A-Za-z0-9_-]{1,2048}$/u;
+const localOrigins = new WeakMap();
+const verifiedDevices = new WeakSet();
+// Only the Node host calls this with its own request. Browser fields cannot select an origin.
+export function bindLocalDeviceOrigin(request, origin) {
+  const url=new URL(origin);
+  if(url.protocol!=='http:'||url.hostname!=='localhost'||url.port===''||Number(url.port)<1024
+    ||url.origin!==origin||!['127.0.0.1','::1','::ffff:127.0.0.1'].includes(request.socket?.remoteAddress))throw Error('INVALID_LOCAL_DEVICE_ORIGIN');
+  localOrigins.set(request,origin);
+}
+export const isVerifiedDeviceResult = result => verifiedDevices.has(result);
 export { DEVICE_RULE_IDS } from './policy-rule-ids.mjs';
 export const sha256 = value => createHash('sha256').update(value).digest('hex');
 export function bodyHash(body) {
@@ -108,7 +118,9 @@ export function createDeviceService({ config, store, clock = () => Date.now() } 
       token_sha256: sha256(authorization), credential_id: credential.id, kind,
       old_counter: credential.counter, new_counter: result.authenticationInfo.newCounter });
     if (!consumed?.ok) throw fail(403, 'DEVICE_PROOF_REJECTED');
-    return { approved: consumed.state === 'approved', state: consumed.state };
+    // Internal evidence stays non-enumerable: existing public JSON contracts remain unchanged.
+    return Object.defineProperties({approved:consumed.state==='approved',state:consumed.state},{
+      deviceId:{value:sha256(principal(identity)+':'+credential.id).slice(0,16)},ownerKey:{value:principal(identity)}});
   }
   return {
     async status(identity) {
@@ -171,12 +183,15 @@ export async function enforceDeviceRequest(request, identity, config, base, secr
       throw fail(403, 'DEVICE_SIGNATURE_REQUIRED');
     }
     const proof = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
-    const service = createDeviceService({ config, store: createDeviceStore(base, secretKey) });
+    const localOrigin=localOrigins.get(request);
+    const deviceConfig=localOrigin?{...config,publicAppUrl:localOrigin+'/'}:config;
+    const service = createDeviceService({ config:deviceConfig, store: createDeviceStore(base, secretKey) });
     const result = await service.protect(proof, identity, request.headers.authorization,
       { method: request.method, path: request.url,
         bodySha256: bodyHash(['GET', 'DELETE'].includes(request.method) ? undefined : request.body) });
     if (!result.approved) throw fail(403, 'DEVICE_NOT_APPROVED');
-    return { ok: true };
+    const verified=Object.freeze({ok:true,deviceId:result.deviceId,ownerKey:result.ownerKey});
+    verifiedDevices.add(verified);return verified;
   } catch (error) {
     return { ok: false, status: error.status ?? 403, error: error.status ? error.message : 'INVALID_DEVICE_PROOF' };
   }

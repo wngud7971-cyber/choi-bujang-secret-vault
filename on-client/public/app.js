@@ -8,6 +8,8 @@ import {validConnectionPayload} from '/student/connection-status-view.mjs';
 const STUDENT_MODULE = '/student/extension.mjs';
 const STUDENT_PENDING = '학생 구현 대기';
 const REQUEST_TIMEOUT_MS = 10000;
+const AI_REQUEST_TIMEOUT_MS = 310000;
+const aiDeadlinePath = path => ['/api/ai/check', '/api/ai/explain', '/api/learner-support/gpt'].includes(path);
 const UNVERIFIED_MESSAGE = '서버 응답 형식을 확인할 수 없습니다(확인 불가). 정상으로 간주하지 마세요.';
 
 const MODE_LABELS = {
@@ -166,7 +168,7 @@ function validAiCheck(data, meta) {
 const AI_MESSAGES = Object.freeze({
   ON_AI_PROVISIONING_PENDING: '학생 앱 이용 권한의 발급·연결을 준비 중입니다. 담당자에게 확인하세요.',
   WB_CLCO_AUTH_REQUIRED: '앱 전용 열쇠의 인증을 확인하세요. Workbench 열쇠를 복사하지 마세요.',
-  WB_CLCO_ACCESS_BLOCKED: '학생 앱의 이용 권한을 확인하세요.',
+  WB_CLCO_ACCESS_BLOCKED: '학생 앱 AI 이용이 제한됐습니다. 운영 중지 상태와 이용 권한을 담당자에게 확인하세요.',
   WB_CLCO_COHORT_BUDGET_EXHAUSTED: '반의 AI 사용량이 소진됐습니다. 담당자에게 확인하세요.',
   WB_CLCO_RATE_LIMITED: 'AI 요청이 잠시 제한됐습니다. 잠시 후 직접 다시 요청하세요.',
   WB_CLCO_LIMIT_REACHED: 'AI 이용 한도에 도달했습니다. 담당자에게 확인하세요.',
@@ -239,7 +241,7 @@ function loadingBox() {
 function normalizeMeta(meta) {
   const mode = meta && ['connected', 'demo', 'disconnected'].includes(meta.mode) ? meta.mode : 'unknown';
   const checkedAt = meta && typeof meta.checkedAt === 'string' ? meta.checkedAt : null;
-  return { mode, checkedAt };
+  return { mode, checkedAt, ...(meta?.engineSource === 'keshev' ? {engineSource:'keshev'} : {}) };
 }
 
 function localFailure(code, message, meta = { mode: 'disconnected', checkedAt: null }) {
@@ -249,14 +251,14 @@ function localFailure(code, message, meta = { mode: 'disconnected', checkedAt: n
 const UNKNOWN_META = { mode: 'unknown', checkedAt: null };
 
 // 기본 요청은 10초, Windows 연결 조회는 30초 뒤 중단한다. 화면 이탈 시에도 취소할 수 있다.
-async function request(path, { method = 'GET', body, signal } = {}) {
+async function request(path, { method = 'GET', body, signal, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
   // Cloud pages must not query the older library APIs, localhost, or a cloud OS as the user's PC.
   if (document.documentElement?.dataset?.runtime === 'web') {
     return localFailure('LOCAL_AGENT_NOT_CONNECTED', '웹 배포 화면에 PC 에이전트가 연결되지 않았습니다. 이 PC의 로컬 앱에서 실제 값을 확인하세요.', UNKNOWN_META);
   }
   const controller = new AbortController();
   let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, path === '/api/connection-status/read' ? 30000 : REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, path === '/api/connection-status/read' ? Math.max(30000, timeoutMs) : timeoutMs);
   const onAbort = () => controller.abort();
   if (signal) {
     if (signal.aborted) controller.abort();
@@ -317,14 +319,15 @@ async function request(path, { method = 'GET', body, signal } = {}) {
 async function aiRequest(path, { body, signal } = {}) {
   if (signal?.aborted) return localFailure('CANCELLED', AI_MESSAGES.CANCELLED, UNKNOWN_META);
   const controller = new AbortController();
+  const timeoutMs = aiDeadlinePath(path) ? AI_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
   let timer, cancel;
   const stopped = new Promise(resolve => {
     cancel = () => { resolve(localFailure('CANCELLED', AI_MESSAGES.CANCELLED, UNKNOWN_META)); controller.abort(); };
-    timer = setTimeout(() => { resolve(localFailure('TIMEOUT', AI_MESSAGES.TIMEOUT, UNKNOWN_META)); controller.abort(); }, REQUEST_TIMEOUT_MS);
+    timer = setTimeout(() => { resolve(localFailure('TIMEOUT', AI_MESSAGES.TIMEOUT, UNKNOWN_META)); controller.abort(); }, timeoutMs);
     if (signal?.aborted) cancel();
     else signal?.addEventListener('abort', cancel, { once: true });
   });
-  try { return await Promise.race([request(path, { method: 'POST', body, signal: controller.signal }), stopped]); }
+  try { return await Promise.race([request(path, { method: 'POST', body, signal: controller.signal, timeoutMs }), stopped]); }
   finally { clearTimeout(timer); signal?.removeEventListener('abort', cancel); controller.abort(); }
 }
 
@@ -401,6 +404,7 @@ function renderMode() {
   const mode = currentMode();
   badge.dataset.mode = mode;
   badge.textContent = document.documentElement?.dataset?.runtime === 'web' ? '웹 배포 · PC 실측 미연결' : MODE_LABELS[mode];
+  if(document.documentElement?.dataset?.engine==='keshev')badge.textContent=mode==='connected'?'케셰브 자체 엔진 연결됨':mode==='disconnected'?'자체 엔진 연결 준비 중':'자체 엔진 확인 불가';
   $('checked-at').textContent = state.checkedAt ? `확인 시각 ${formatTime(state.checkedAt)}` : '';
   renderStudent('status');
 }
@@ -1202,7 +1206,8 @@ async function actionOperation(phase,input) {
 // ---------- 학생 구현 연결 ----------
 
 function snapshot(resource) {
-  const base = { status: resource.status, mode: resource.meta ? resource.meta.mode : null };
+  const base = { status: resource.status, mode: resource.meta ? resource.meta.mode : null,
+    ...(resource.meta?.engineSource==='keshev'?{engineSource:'keshev'}:{}) };
   if (resource.status === 'ok') base.data = resource.data;
   if (resource.status === 'error') base.error = { code: resource.error.code, message: resource.error.message };
   try {
@@ -1528,7 +1533,66 @@ async function loadAll() {
   }
 }
 
+// Independent engine enrollment. Passwords/JWTs are never put in browser storage or diagnostics.
+function setupLocalEngine() {
+  if(document.documentElement?.dataset?.engine!=='keshev'||document.documentElement?.dataset?.runtime==='web')return;
+  const panel=el('section',{className:'card',id:'local-engine-panel'});
+  panel.setAttribute('aria-label','케셰브 자체 엔진 연결');
+  panel.appendChild(el('h2',{text:'케셰브 자체 엔진 · 직접 구현'}));
+  panel.appendChild(el('p',{text:'기존 자료실 계정과 실제 승인 기기를 확인한 뒤 연결됩니다. ALEPH SDP·AI·XDR 대응은 별도이며, PC 안전 판정이 아닙니다.'}));
+  const status=el('p',{text:'자체 엔진 준비 상태 확인 중…'});status.setAttribute('role','status');status.setAttribute('aria-live','polite');panel.appendChild(status);
+  const form=el('form'),email=el('input',{id:'local-engine-email'}),password=el('input',{id:'local-engine-password'});
+  email.type='email';email.autocomplete='username';email.required=true;
+  password.type='password';password.autocomplete='current-password';password.required=true;
+  const emailLabel=el('label',{text:'자료실 계정 이메일'});emailLabel.htmlFor=email.id;
+  const passwordLabel=el('label',{text:'자료실 계정 비밀번호'});passwordLabel.htmlFor=password.id;
+  const login=el('button',{className:'btn',text:'자체 엔진 로그인'});login.type='submit';
+  form.append(emailLabel,email,passwordLabel,password,login);panel.appendChild(form);
+  const controls=el('div',{className:'row'});panel.appendChild(controls);
+  const buttons=[login];let busy=false;
+  async function call(path,body){
+    const result=await fetch('/api/local-engine/'+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',cache:'no-store',
+      headers:body===undefined?{}:{'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(20000)});
+    const value=await result.json();if(value?.ok!==true)throw Error(value?.error?.message||'자체 엔진 조회 실패 · 서버 상태를 확인하세요.');return value.data;
+  }
+  async function refresh(){const value=await call('status');if(value?.source!=='keshev'||typeof value.connected!=='boolean')throw Error('자체 엔진 응답 확인 불가');
+    status.textContent=value.message+' · '+value.code+' · '+formatTime(value.checkedAt);return value;}
+  async function run(work){if(busy)return;busy=true;buttons.forEach(b=>b.disabled=true);status.textContent='처리 중… 실제 응답을 기다리는 중입니다.';
+    try{const message=await work();await refresh();if(message)status.textContent=message+' · '+status.textContent;await loadAll();}
+    catch(error){status.textContent=(error.name==='NotAllowedError'?'기기 확인이 취소됐거나 완료되지 않았습니다.':error.message)+' · 다음 할 일: 주소·서버 설정·기기 승인 상태를 확인한 뒤 다시 시도하세요.';await loadAll();}
+    finally{busy=false;buttons.forEach(b=>b.disabled=false);}}
+  const unb64=value=>Uint8Array.from(atob(value.replaceAll('-','+').replaceAll('_','/')+'='.repeat((4-value.length%4)%4)),c=>c.charCodeAt(0));
+  const b64=value=>btoa(String.fromCharCode(...new Uint8Array(value))).replaceAll('+','-').replaceAll('/','_').replace(/=+$/u,'');
+  async function proof(kind){
+    if(!window.PublicKeyCredential||!navigator.credentials)throw Error('이 브라우저에서 기기 서명 확인을 사용할 수 없습니다.');
+    const packet=await call('device/options',{kind}),options=packet.options;
+    options.challenge=unb64(options.challenge);
+    for(const key of ['allowCredentials','excludeCredentials'])if(options[key])options[key]=options[key].map(row=>({...row,id:unb64(row.id)}));
+    if(options.user)options.user={...options.user,id:unb64(options.user.id)};
+    const credential=kind==='registration'?await navigator.credentials.create({publicKey:options}):await navigator.credentials.get({publicKey:options});
+    if(!credential)throw Error('기기 서명이 완료되지 않았습니다.');
+    const response=credential.response,serialized=credential.toJSON?credential.toJSON():{id:credential.id,rawId:b64(credential.rawId),type:credential.type,
+      clientExtensionResults:credential.getClientExtensionResults(),response:{clientDataJSON:b64(response.clientDataJSON),
+        ...(response.attestationObject?{attestationObject:b64(response.attestationObject),transports:response.getTransports?.()??[]}:{}),
+        ...(response.authenticatorData?{authenticatorData:b64(response.authenticatorData),signature:b64(response.signature),userHandle:response.userHandle?b64(response.userHandle):null}:{})}};
+    return {challengeId:packet.challengeId,credential:serialized};
+  }
+  function button(text,work){const b=el('button',{className:'btn',text});b.type='button';b.addEventListener('click',()=>run(work));buttons.push(b);controls.appendChild(b);}
+  form.addEventListener('submit',event=>{event.preventDefault();const credentials={email:email.value.trim(),password:password.value};password.value='';
+    run(async()=>{await call('login',credentials);return '계정 확인 후 기기 확인이 필요합니다.';});});
+  button('기기 확인',async()=>{await call('device/verify',{proof:await proof('status')});return '실제 기기 서명을 확인했습니다.';});
+  button('현재 기기 등록 요청',async()=>{const result=await call('device/register',{proof:await proof('registration')});
+    if(!/^[a-f0-9]{16}$/u.test(result.requestId??''))throw Error('기기 등록 요청 결과 확인 불가');
+    return '기기 등록 요청 번호: '+result.requestId+' · 승인은 기존 DB 담당 절차로 별도 진행합니다.';});
+  button('본인 자료 실제 조회',async()=>{const value=await call('notes/read',{proof:await proof('request')});return value.message+' · '+value.count+'건 · HTTP '+value.httpStatus;});
+  button('연결 다시 확인',async()=>{await refresh();});
+  button('자체 엔진 로그아웃',async()=>{await call('logout',{});return '로컬 연결 세션을 종료했습니다.';});
+  $('view-protection').prepend(panel);
+  refresh().catch(()=>{status.textContent='자체 엔진 서버에 연결할 수 없습니다. 서버 실행 상태를 확인하세요.';});
+}
+
 function init() {
+  if(document.documentElement?.dataset?.engine==='keshev')setupLocalEngine();
   const webNotice = $('web-runtime-notice');
   if (webNotice) webNotice.hidden = document.documentElement?.dataset?.runtime !== 'web';
   if (document.documentElement?.dataset?.runtime === 'web') {

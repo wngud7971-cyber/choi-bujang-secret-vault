@@ -1,3 +1,6 @@
+import {ephemeralTestValue} from './helpers/ephemeral-credentials.mjs';
+const credentialFixture1 = ephemeralTestValue();
+
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createContext, SourceTextModule } from 'node:vm';
@@ -140,7 +143,7 @@ test('Jev 요약과 reason에는 주소·계정·비밀값·원문을 넣지 않
 test('공식 Jev HTTP 형식과 noul 확률을 사용하고 임의 confidence는 거부합니다', async () => {
   const summary = { patterns: ['sql-injection'], level: 7, attempts: 1,
     sourceIp: '192.0.2.1' };
-  const options = { apiKey: 'test-only-placeholder', fetchImpl: async (url, init) => {
+  const options = { apiKey: credentialFixture1, fetchImpl: async (url, init) => {
     assert.equal(url.href, JEV_ENDPOINT);
     assert.equal(init.method, 'POST');
     assert.equal(init.redirect, 'error');

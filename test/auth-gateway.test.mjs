@@ -1,3 +1,9 @@
+import {ephemeralTestValue} from './helpers/ephemeral-credentials.mjs';
+const credentialFixture1 = ephemeralTestValue();
+const credentialFixture2 = ephemeralTestValue();
+const credentialFixture3 = ephemeralTestValue();
+const credentialFixture4 = ephemeralTestValue();
+
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -44,15 +50,15 @@ test('auth gateway limits scope, keeps keys server-side and supports the real SD
   try {
     await t.test('password login forwards only credentials and returns only session fields', async () => {
       calls = [];
-      upstream = async () => Response.json({ access_token: 'TEST_ONLY_ACCESS', refresh_token: 'TEST_ONLY_REFRESH',
+      upstream = async () => Response.json({ access_token: credentialFixture1, refresh_token: credentialFixture2,
         expires_in: 3600, token_type: 'bearer', user: { ...user, secret: serverKey }, secret: serverKey });
       const response = await call('/api/auth/token?grant_type=password', 'POST', {
-        email, password: 'TEST_ONLY_PASSWORD', url: 'https://attacker.invalid', role: 'service_role', apikey: 'ATTACKER_KEY',
-      }, { authorization: 'Bearer server-auth-proxy', apikey: 'ATTACKER_KEY' });
+        email, password: credentialFixture3, url: 'https://attacker.invalid', role: 'service_role', apikey: credentialFixture4,
+      }, { authorization: 'Bearer server-auth-proxy', apikey: credentialFixture4 });
       assert.equal(response.statusCode, 200);
       assert.equal(calls.length, 1);
       assert.equal(new URL(calls[0].url).pathname, '/auth/v1/token');
-      assert.deepEqual(JSON.parse(calls[0].options.body), { email, password: 'TEST_ONLY_PASSWORD' });
+      assert.deepEqual(JSON.parse(calls[0].options.body), { email, password: credentialFixture3 });
       assert.equal(calls[0].options.headers.Authorization, undefined);
       assert.deepEqual(response.body.user, user);
       assert.ok(!JSON.stringify(response.body).includes(serverKey));
@@ -73,12 +79,12 @@ test('auth gateway limits scope, keeps keys server-side and supports the real SD
     });
     await t.test('upstream errors and missing server configuration return generic errors without secrets', async () => {
       upstream = async () => Response.json({ code: 'invalid_credentials', message: serverKey }, { status: 400 });
-      const denied = await call('/api/auth/token?grant_type=password', 'POST', { email, password: 'TEST_ONLY_PASSWORD' });
+      const denied = await call('/api/auth/token?grant_type=password', 'POST', { email, password: credentialFixture3 });
       assert.equal(denied.statusCode, 400);
       assert.equal(denied.body.code, 'invalid_credentials');
       assert.ok(!JSON.stringify(denied).includes(serverKey));
       upstream = async () => { throw new Error(secretSentinel); };
-      const unavailable = await call('/api/auth/token?grant_type=refresh_token', 'POST', { refresh_token: 'TEST_ONLY_REFRESH' });
+      const unavailable = await call('/api/auth/token?grant_type=refresh_token', 'POST', { refresh_token: credentialFixture2 });
       assert.equal(unavailable.statusCode, 502);
       assert.ok(!JSON.stringify(unavailable).includes(secretSentinel));
       delete process.env.SUPABASE_SECRET_KEY;
@@ -96,7 +102,7 @@ test('auth gateway limits scope, keeps keys server-side and supports the real SD
           return new Response(null, { status: 204 });
         }
         if (url.pathname.endsWith('/user')) return Response.json(user);
-        return Response.json({ access_token: access, refresh_token: 'TEST_ONLY_REFRESH', expires_in: 3600, user });
+        return Response.json({ access_token: access, refresh_token: credentialFixture2, expires_in: 3600, user });
       };
       const sdk = createClient(config.publicAppUrl, 'server-auth-proxy', {
         auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
@@ -109,7 +115,7 @@ test('auth gateway limits scope, keeps keys server-side and supports the real SD
         } },
       });
       try {
-        const login = await sdk.auth.signInWithPassword({ email, password: 'TEST_ONLY_PASSWORD' });
+        const login = await sdk.auth.signInWithPassword({ email, password: credentialFixture3 });
         assert.equal(login.error, null);
         assert.equal(login.data.session.access_token, access);
         const refreshed = await sdk.auth.refreshSession();
@@ -122,8 +128,8 @@ test('auth gateway limits scope, keeps keys server-side and supports the real SD
     });
     await t.test('first-page security header is configured without removing existing deployment settings', async () => {
       const vercel = JSON.parse(await readFile(new URL('../vercel.json', import.meta.url), 'utf8'));
-      assert.equal(vercel.outputDirectory, 'public');
-      assert.equal(vercel.buildCommand, 'npm run build');
+      assert.equal(vercel.outputDirectory, 'web-build');
+      assert.equal(vercel.buildCommand, 'npm run build -- --agent-web');
       assert.ok(vercel.headers.some(rule => rule.source === '/(.*)' && rule.headers.some(header =>
         header.key.toLowerCase() === 'x-content-type-options' && header.value === 'nosniff')));
     });

@@ -6,10 +6,10 @@ import {fileURLToPath} from 'node:url';
 import {randomUUID,createHash} from 'node:crypto';
 import {types} from 'node:util';
 import {createAppCredentialVault} from '../ai/credential-vault.mjs';
-import {CLCO_GATEWAY_ORIGIN,ALEPH_PORTAL_ORIGIN} from '../ai/connection.mjs';
-import {createNativeLogin,nativeFault,nativeOwn,nativeSignal,openNativeOperation,refreshNativeOperation,assertNativeOperation,nativeOperationBinding,closeNativeOperation,issueNativeReceiptTicket} from './native-login.mjs';
+import {CLCO_GATEWAY_ORIGIN,ALEPH_PORTAL_ORIGIN,connectDetail,connectionErrorDetail} from '../ai/connection.mjs';
+import {createNativeLogin,nativeFault,nativeOwn,nativeSignal,openNativeOperation,refreshNativeOperation,assertNativeOperation,nativeOperationBinding,closeNativeOperation,issueNativeReceiptTicket,captureNativeFinishProof,readNativeFinishProof} from './native-login.mjs';
 
-const hosts=new WeakMap(),operations=new WeakMap(),configurations=new WeakMap();
+const hosts=new WeakMap(),operations=new WeakMap(),configurations=new WeakMap(),finishCheckpoints=new WeakMap(),finishPorts=new WeakMap();
 const HELPER=fileURLToPath(new URL('../../tools/native-host-registry.ps1',import.meta.url));
 const POWERSHELL='C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
 const HASH=/^[a-f0-9]{64}$/;
@@ -27,9 +27,12 @@ function configurationFile(file){if(typeof file!=='string'||! /^[A-Za-z]:\\/.tes
     const bytes=readFileSync(fd),after=fstatSync(fd,{bigint:true}),named=lstatSync(file,{bigint:true});if(a.dev!==after.dev||a.ino!==after.ino||a.size!==after.size||a.mtimeNs!==after.mtimeNs||a.ctimeNs!==after.ctimeNs||a.dev!==named.dev||a.ino!==named.ino)throw nativeFault('CONTEXT_CHANGED');
     return {bytes,proof:Object.freeze({path:file,digest:sha(bytes),identity:[String(a.dev),String(a.ino),String(a.birthtimeNs)].join(':')})};
   }finally{closeSync(fd);}}
-export async function readNativeHostConfiguration(file){const captured=configurationFile(file);let raw;try{raw=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(captured.bytes));}catch{throw nativeFault('INPUT_INVALID');}
+// expected (optional, host-derived): {projectRoot}. Checked on the pure parse/fence result BEFORE any registry helper runs,
+// so a foreign project's configuration never reaches the registry/SID/ACL helper. The checks below are unchanged.
+export async function readNativeHostConfiguration(file,expected){const captured=configurationFile(file);let raw;try{raw=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(captured.bytes));}catch{throw nativeFault('INPUT_INVALID');}
   const o=nativeOwn(raw,['enabled','registryRoot','vaultRoot','projectRoot','gatewayOrigin','portalOrigin']);if(o.enabled!==true)throw nativeFault('INPUT_INVALID');
   const config=primitiveOptions(o),startup={config,configFile:captured.proof,closed:false,children:new Set()};
+  if(expected!==undefined){const e=nativeOwn(expected,['projectRoot']);if(typeof e.projectRoot!=='string'||config.projectRoot.toLowerCase()!==resolve(e.projectRoot).toLowerCase())throw nativeFault('PROJECT_MISMATCH');}
   // 명시적 CLI만 실제 SID·ACL과 registry를 확인한다. 원격 로그인 요청보다 먼저 끝난다.
   await registry(startup,{action:'select',deadline:Date.now()+config.timeoutMs,binding:null},undefined,async value=>{nativeOwn(value,['projectId','directoryInstance','registryRevision']);return {outcome:'read',value:null};});
   configurations.set(o,captured.proof);return o;}
@@ -66,7 +69,7 @@ async function registry(s,request,signal,work){
     const timer=setTimeout(()=>fail(nativeFault('TIMEOUT')),remainingMs),abort=()=>fail(nativeFault('CANCELLED'));signal?.addEventListener('abort',abort,{once:true});
     child.on('error',()=>fail(nativeFault('UNVERIFIED')));child.stdin.on('error',()=>fail(nativeFault('OUTCOME_UNKNOWN')));child.stderr.on('data',()=>{});
     child.stdout.on('data',chunk=>{if(error)return;bytes+=chunk.length;if(bytes>32768)return fail(nativeFault('RESPONSE_INVALID'));buffer+=chunk.toString('utf8');let at;
-      while((at=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,at);buffer=buffer.slice(at+1);let frame;try{alive();frame=JSON.parse(line);if(frame.stage==='error')throw nativeFault('UNVERIFIED');
+      while((at=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,at);buffer=buffer.slice(at+1);let frame;try{alive();frame=JSON.parse(line);if(frame.stage==='error'){let d;try{d=nativeOwn(frame,['stage','code'],['detailCode']);}catch{throw Object.assign(nativeFault('UNVERIFIED'),{detailCode:'OTHER'});}throw Object.assign(nativeFault('UNVERIFIED'),{detailCode:d.code==='NATIVE_HOST_REGISTRY_UNVERIFIED'?connectDetail(d.detailCode):'OTHER'});}
           if(stage==='starting'){const d=nativeOwn(frame,['stage','nonce','result']);if(d.stage!=='ready'||d.nonce!==nonce)throw nativeFault('RESPONSE_INVALID');result=d.result;stage='working';
             const pending=Promise.resolve().then(()=>{alive();return work(result);}).then(v=>{workValue=v.value;alive();stage='committing';child.stdin.end(JSON.stringify({nonce,outcome:v.outcome})+'\n');},e=>{error=e;stage='committing';if(child.stdin.writable)child.stdin.end(JSON.stringify({nonce,outcome:'unknown'})+'\n');else fail(e);});pending.catch(fail);
           }else if(stage==='committing'){const d=nativeOwn(frame,['stage','nonce']);if(d.stage!=='done'||d.nonce!==nonce)throw nativeFault('RESPONSE_INVALID');stage='finished';}else throw nativeFault('RESPONSE_INVALID');
@@ -98,6 +101,21 @@ export function assertNativeHostOperation(host,cap){const {s,op}=operation(host,
   return Object.freeze({subjectId:final.canonicalStudentId,alephUserId:final.alephUserId,siteId:final.siteId,identityVersion:final.identityVersion,projectId:op.project.projectId});
 }
 export async function readNativeHostOperation(host,cap){operation(host,cap);await refreshNativeOperation(operations.get(cap).loginCap);return assertNativeHostOperation(host,cap);}
+/** Private finish checkpoint: the same host/cap and physical config/project fences,
+ * backed by the finite native-login proof in that exact login closure. */
+export function captureNativeHostFinishCheckpoint(host,cap){
+  const before=assertNativeHostOperation(host,cap),{s,op}=operation(host,cap),proof=captureNativeFinishProof(op.loginCap),value=readNativeFinishProof(proof),after=assertNativeHostOperation(host,cap);
+  if(canonical(before)!==canonical(after)||value.identity.canonicalStudentId!==after.subjectId||value.identity.alephUserId!==after.alephUserId||value.identity.siteId!==after.siteId||value.identity.identityVersion!==after.identityVersion||!Number.isSafeInteger(op.projectGeneration)||op.projectGeneration<1)throw nativeFault('CONTEXT_CHANGED');
+  const handle=Object.freeze(Object.create(null)),commitment=sha('ALEPH_FINISH_NATIVE_CHECKPOINT_V1\n'+canonical({session:value.sessionCommitment,operation:op.operationId,projectGeneration:op.projectGeneration,projectFence:sha(op.project.nodeInstance),configuration:s.configFile?.digest??sha(canonical({projectRoot:s.config.projectRoot,registryRoot:s.config.registryRoot,vaultRoot:s.config.vaultRoot}))}));
+  finishCheckpoints.set(handle,{host,cap,proof,identity:after,operationGeneration:op.projectGeneration,nativeCommitment:commitment,closed:false});readNativeHostFinishCheckpoint(handle);return handle;
+}
+export function readNativeHostFinishCheckpoint(handle){
+  const r=finishCheckpoints.get(handle);if(!r||r.closed)throw nativeFault('UNVERIFIED');
+  try{const before=assertNativeHostOperation(r.host,r.cap);readNativeFinishProof(r.proof);const after=assertNativeHostOperation(r.host,r.cap),value=readNativeFinishProof(r.proof);
+    if(canonical(before)!==canonical(after)||canonical(after)!==canonical(r.identity))throw nativeFault('CONTEXT_CHANGED');
+    return Object.freeze({identity:r.identity,checkpointAtMs:value.checkpointAtMs,nativeProofUntilMs:value.nativeProofUntilMs,operationUntilMs:value.operationUntilMs,sessionGeneration:value.sessionGeneration,operationGeneration:r.operationGeneration,nativeCommitment:r.nativeCommitment});
+  }catch(e){r.closed=true;throw e;}
+}
 // 완료된 flow의 표시는 새로 확인한 operation과 같은 로그인·프로젝트일 때만 유지한다.
 // 닫힌 과거 capability는 비교에만 쓰며 저장·요청 권위로 되살리지 않는다.
 export function assertNativeHostContinuity(host,previous,current){
@@ -121,8 +139,10 @@ export async function issueNativeHostReceipt(host,cap,input){
   return ticket;
 }
 export function closeNativeHostOperation(cap){const op=operations.get(cap);if(!op||op.closed)return;op.closed=true;closeNativeOperation(op.loginCap);hosts.get(op.host)?.operations.delete(cap);}
-export function createNativeOperationVault(host,cap){const {s,op}=operation(host,cap);
+export function createNativeOperationVault(host,cap,onStage){const {s,op}=operation(host,cap);
   const execute=async(action,input,options={})=>{
+    let stage='preSaveContext';const mark=value=>{stage=value;if(action==='save')try{onStage?.(value);}catch{}};
+    try{mark('preSaveContext');
     const call=nativeOwn(options,[],['signal']),signal=nativeSignal(call.signal);if(signal?.aborted)throw nativeFault('CANCELLED');
     const merged=signal?AbortSignal.any([op.signal,signal]):op.signal;
     const expected=nativeOwn(input,action==='save'?['expectedContext','connectionId','credential']:action==='remove'?['expectedContext','credentialFingerprint']:['expectedContext']);
@@ -135,17 +155,35 @@ export function createNativeOperationVault(host,cap){const {s,op}=operation(host
     const binding={operationId:op.operationId,nativeInstance:source.nativeInstance,generation:source.generation,projectGeneration:op.projectGeneration,directoryInstance:op.project.directoryInstance,contextDigest,tokenDigest,credentialDigest,expectedRevision:0};
     const vault=createAppCredentialVault({vaultRoot:s.config.vaultRoot,baseUrl:CLCO_GATEWAY_ORIGIN+'/api/apps/aleph-on/v1',timeoutMs:s.config.timeoutMs,
       resolveCurrentContext:async()=>{if(merged.aborted)throw nativeFault('CANCELLED');const current=await readNativeHostOperation(host,cap);if(merged.aborted)throw nativeFault('CANCELLED');return current;}});
-    const result=await registry(s,{action,deadline:source.deadline,binding},merged,async raw=>{
+    mark('vaultSave');const result=await registry(s,{action,deadline:source.deadline,binding},merged,async raw=>{
       const fence=nativeOwn(raw,['operationId','nativeInstance','generation','projectGeneration','directoryInstance','contextDigest','tokenDigest','credentialDigest','state','revision','vault','deadline']);
       if(action!=='save'&&(fence.state!=='accepted'&&action!=='remove'||fence.nativeInstance!==source.nativeInstance||fence.generation!==source.generation||fence.projectGeneration!==op.projectGeneration||fence.directoryInstance!==op.project.directoryInstance||fence.contextDigest!==contextDigest))throw nativeFault('CONTEXT_CHANGED');
-      await readNativeHostOperation(host,cap);if(merged.aborted)throw nativeFault('CANCELLED');let value;
-      if(action==='save')value=await vault.persistCredential({connectionId:expected.connectionId,expectedContext:context,credential},{signal:merged});
+      mark('preSaveContext');await readNativeHostOperation(host,cap);if(merged.aborted)throw nativeFault('CANCELLED');let value;
+      mark('vaultSave');if(action==='save')value=await vault.persistCredential({connectionId:expected.connectionId,expectedContext:context,credential},{signal:merged});
       else if(action==='load'){value=await vault.load({expectedContext:context},{signal:merged});if(value===null||sha(value.token)!==fence.tokenDigest||sha(canonical(nativeOwn(value,credentialKeys)))!==fence.credentialDigest)throw nativeFault('CONTEXT_CHANGED');}
       else value=await vault.remove({expectedContext:context,credentialFingerprint:tokenDigest},{signal:merged});
-      await readNativeHostOperation(host,cap);if(merged.aborted)throw nativeFault('CANCELLED');assertNativeHostOperation(host,cap);
-      return {outcome:action==='save'?'accepted':action==='remove'?'removed':'read',value};
+      mark('postSaveContext');await readNativeHostOperation(host,cap);if(merged.aborted)throw nativeFault('CANCELLED');assertNativeHostOperation(host,cap);
+      mark('saveAck');return {outcome:action==='save'?'accepted':action==='remove'?'removed':'read',value};
     });
-    if(merged.aborted)throw nativeFault('CANCELLED');assertNativeHostOperation(host,cap);return result;
+    mark('postSaveContext');if(merged.aborted)throw nativeFault('CANCELLED');assertNativeHostOperation(host,cap);return result;
+    }catch(error){if(action!=='save')throw error;let code='OTHER';try{if(error&&typeof error==='object'&&!types.isProxy(error)){const d=Object.getOwnPropertyDescriptor(error,'code');if(d&&Object.hasOwn(d,'value'))code=connectDetail(d.value);}}catch{}throw Object.assign(new Error('NATIVE_HOST_UNVERIFIED'),{code,detailCode:connectionErrorDetail(error),failedStage:stage});}
   };
   return Object.freeze({persistCredential:(input,call)=>execute('save',input,call),load:(input,call)=>execute('load',input,call),remove:(input,call)=>execute('remove',input,call)});
 }
+
+// Separate constructor-only remote finish port. Kept in the existing runtime module
+// so unchanged starter inventories retain their complete default import closure.
+export function createNativeFinishCheckpointPort(host){
+  if(!isNativeHostContext(host))throw nativeFault('UNVERIFIED');const active=new Set(),issued=new WeakSet();let closed=false;
+  const alive=()=>{if(closed)throw nativeFault('UNVERIFIED');};
+  const owned=cap=>{alive();if(!active.has(cap))throw nativeFault('UNVERIFIED');};
+  const port=Object.freeze({
+    async open(options){alive();const cap=await openNativeHostOperation(host,options);if(closed){closeNativeHostOperation(cap);throw nativeFault('UNVERIFIED');}active.add(cap);issued.add(cap);return cap;},
+    read(cap){owned(cap);return readNativeHostOperation(host,cap);},
+    checkpoint(cap){owned(cap);return captureNativeHostFinishCheckpoint(host,cap);},
+    closeOperation(cap){if(!issued.has(cap))throw nativeFault('UNVERIFIED');if(active.delete(cap))closeNativeHostOperation(cap);},
+  });
+  const close=()=>{if(closed)return;closed=true;for(const cap of active)closeNativeHostOperation(cap);active.clear();};
+  finishPorts.set(port,{ready:()=>{if(closed)return false;try{return host.login.status().state==='connected';}catch{return false;}}});return Object.freeze({port,close});
+}
+export function readNativeFinishCheckpointPort(value){const r=value&&typeof value==='object'&&!types.isProxy(value)?finishPorts.get(value):null;if(!r)throw nativeFault('UNVERIFIED');return Object.freeze({ready:r.ready});}

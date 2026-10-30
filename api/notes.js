@@ -4,6 +4,7 @@ import { createLoginVerifier } from '../src/verify-login.mjs';
 import { randomUUID } from 'node:crypto';
 import { UUID, parseResourceTarget, recordResourceDenial } from '../src/resource-path.mjs';
 import { createBackedUpNote, isRecoveryIdentity } from '../src/note-recovery.mjs';
+import { authorizeSecurityEngineRequest } from '../src/security-engine.mjs';
 
 let loginVerifier;
 let verifierKey;
@@ -95,6 +96,13 @@ export default async function handler(request, response) {
       return response.status(400).json({ error: 'INVALID_NOTE' });
     }
   }
+
+  // Only a server-owned local engine capability can enable this additional gate.
+  // Existing authentication, device proof and atomic DB owner checks remain in force.
+  try {
+    const gate=await authorizeSecurityEngineRequest(request,identity,device,resource);
+    if(!gate.ok)return refuse(gate.status,gate.error);
+  } catch {return response.status(503).json({error:'LOCAL_ENGINE_UNVERIFIED'});}
 
   // Stage 10 creates B's new synthetic test note and its durable verified backup
   // in one transaction. Students and test A retain the existing CRUD behavior.
